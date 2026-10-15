@@ -170,7 +170,23 @@ class EnvironmentCoach(private val context: Context) {
                     recommendedEvDelta = -0.3f
                 )
             }
-            PlaceCategory.GENERAL -> {
+            PlaceCategory.LOW_LIGHT_NIGHT -> {
+                EnvironmentBaseInfo(
+                    title = "Night Scene",
+                    compositionAdvice = "Night portrait • Hold steady; center subject near ambient street or neon lights",
+                    lightingAdvice = "Low ambient light • Night capture mode active; avoid subject motion",
+                    recommendedEvDelta = 0.0f
+                )
+            }
+            PlaceCategory.PORTRAIT_STUDIO -> {
+                EnvironmentBaseInfo(
+                    title = "Studio Portrait",
+                    compositionAdvice = "Studio portrait • Golden framing box; clean background depth",
+                    lightingAdvice = "Key light balance • Optimal skin tone exposure",
+                    recommendedEvDelta = 0.0f
+                )
+            }
+            PlaceCategory.GENERAL, else -> {
                 EnvironmentBaseInfo(
                     title = "Natural Scene",
                     compositionAdvice = "Natural portrait • Position subject inside the golden centering frame",

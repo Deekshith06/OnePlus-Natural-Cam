@@ -864,13 +864,13 @@ fun PortraitFramingBorderOverlay(
     val isCentered = framingGuide?.isCentered == true
 
     val bracketColor = if (isPerfect) Color(0xFF00E676) else if (isCentered) AmberAccent else Color(0xEEFFFFFF)
-    val cornerStrokePx = 3.dp.toPx()
-    val thinStrokePx = 1.dp.toPx()
 
     Box(modifier = modifier) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
+            val cornerStrokePx = 3.dp.toPx()
+            val thinStrokePx = 1.dp.toPx()
 
             // 1. Golden Ratio Target Frame Bounds (Center of viewfinder)
             val tLeft = (framingGuide?.targetBox?.left ?: 0.18f) * w

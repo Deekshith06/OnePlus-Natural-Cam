@@ -15,6 +15,8 @@ class EnvironmentCoachTest {
             PlaceCategory.URBAN_STREET,
             PlaceCategory.HISTORIC_ARCHITECTURE,
             PlaceCategory.BOTANICAL_GARDEN,
+            PlaceCategory.LOW_LIGHT_NIGHT,
+            PlaceCategory.PORTRAIT_STUDIO,
             PlaceCategory.GENERAL
         )
 
@@ -27,6 +29,8 @@ class EnvironmentCoachTest {
                 PlaceCategory.URBAN_STREET -> "Urban Street"
                 PlaceCategory.HISTORIC_ARCHITECTURE -> "Historic Architecture"
                 PlaceCategory.BOTANICAL_GARDEN -> "Botanical Garden"
+                PlaceCategory.LOW_LIGHT_NIGHT -> "Night Scene"
+                PlaceCategory.PORTRAIT_STUDIO -> "Studio Portrait"
                 PlaceCategory.GENERAL -> "Natural Scene"
             }
             assertTrue(title.isNotBlank())
