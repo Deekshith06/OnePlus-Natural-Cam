@@ -127,7 +127,10 @@ fun CameraScreen() {
             }
         }
         cameraManager.registerAiDirector(director)
-        onDispose { director.close() }
+        onDispose {
+            cameraManager.unregisterAiDirector()
+            director.close()
+        }
     }
 
     // Video recording timer

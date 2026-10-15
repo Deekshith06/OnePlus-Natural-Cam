@@ -67,13 +67,23 @@ class OfflineNeuralDirector(private val context: Context) {
             val fileChannel = inputStream.channel
             val modelBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
 
-            val options = Interpreter.Options().apply {
-                setNumThreads(4)
-                setUseNNAPI(true) // Leverage Qualcomm Hexagon NPU on OnePlus 11
+            try {
+                val options = Interpreter.Options().apply {
+                    setNumThreads(4)
+                    setUseNNAPI(true) // Leverage Qualcomm Hexagon NPU on OnePlus 11
+                }
+                interpreter = Interpreter(modelBuffer, options)
+                isInitialized = true
+                Log.i("OfflineNeuralDirector", "Offline TFLite Neural Model loaded successfully (${labels.size} classes, NPU acceleration active)")
+            } catch (e: Exception) {
+                Log.w("OfflineNeuralDirector", "NPU acceleration failed (${e.message}), falling back to 4-thread CPU")
+                val fallbackOptions = Interpreter.Options().apply {
+                    setNumThreads(4)
+                }
+                interpreter = Interpreter(modelBuffer, fallbackOptions)
+                isInitialized = true
+                Log.i("OfflineNeuralDirector", "Offline TFLite Neural Model loaded with CPU multi-threading (${labels.size} classes)")
             }
-            interpreter = Interpreter(modelBuffer, options)
-            isInitialized = true
-            Log.d("OfflineNeuralDirector", "Offline TFLite Neural Model loaded successfully (${labels.size} classes, NPU acceleration active)")
         } catch (e: Exception) {
             Log.e("OfflineNeuralDirector", "Failed to load offline model: ${e.message}", e)
         }
@@ -121,10 +131,12 @@ class OfflineNeuralDirector(private val context: Context) {
             if (maxIdx in labels.indices) {
                 val rawLabel = labels[maxIdx]
                 val confidence = (maxScore / 255.0f).coerceIn(0f, 1f)
-                return mapLabelToPhotographyDirector(rawLabel, confidence)
+                val result = mapLabelToPhotographyDirector(rawLabel, confidence)
+                Log.i("OfflineNeuralDirector", "Classified frame: '$rawLabel' ($maxIdx, ${(confidence * 100).toInt()}%) -> Place: ${result.placeName}")
+                return result
             }
         } catch (e: Exception) {
-            Log.e("OfflineNeuralDirector", "Inference error: ${e.message}")
+            Log.e("OfflineNeuralDirector", "Inference error: ${e.message}", e)
         }
         return null
     }

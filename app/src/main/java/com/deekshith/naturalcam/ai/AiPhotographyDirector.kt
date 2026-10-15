@@ -3,6 +3,7 @@ package com.deekshith.naturalcam.ai
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.deekshith.naturalcam.camera.CameraMode
@@ -57,7 +58,11 @@ class AiPhotographyDirector(
                     val frameBitmap = image.toBitmap()
                     neuralResult = neuralDirector.classifyFrame(frameBitmap)
                     frameBitmap.recycle()
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.e("AiPhotographyDirector", "Neural inference frame error: ${e.message}", e)
+                }
+            } else if (frameSkipCounter % 60 == 0) {
+                Log.w("AiPhotographyDirector", "Neural director not initialized, using real-time chroma analysis")
             }
 
             val yPlane = image.planes[0]

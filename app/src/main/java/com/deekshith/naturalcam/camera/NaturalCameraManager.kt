@@ -137,14 +137,16 @@ class NaturalCameraManager(
                 videoCapture = VideoCapture.withOutput(recorder)
 
                 // 4. On-Device Offline AI Scene Analysis Use Case
-                val imageAnalysis = ImageAnalysis.Builder()
+                // 4. On-Device Offline AI Scene Analysis Use Case
+                val analysis = ImageAnalysis.Builder()
                     .setTargetAspectRatio(targetAspectRatio)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
 
                 aiDirector?.let { director ->
-                    imageAnalysis.setAnalyzer(cameraExecutor, director)
+                    analysis.setAnalyzer(cameraExecutor, director)
                 }
+                this.imageAnalysis = analysis
 
                 // 5. Bind Use Cases to Lifecycle
                 val cameraSelector = CameraSelector.Builder()
@@ -161,22 +163,13 @@ class NaturalCameraManager(
                         videoCapture
                     )
                 } else {
-                    if (aiDirector != null) {
-                        cameraProvider?.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            imageCapture,
-                            imageAnalysis
-                        )
-                    } else {
-                        cameraProvider?.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            imageCapture
-                        )
-                    }
+                    cameraProvider?.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview,
+                        imageCapture,
+                        analysis
+                    )
                 }
 
                 camera?.cameraInfo?.let { onCameraReady(it) }
@@ -401,9 +394,16 @@ class NaturalCameraManager(
     }
 
     var aiDirector: ImageAnalysis.Analyzer? = null
+    private var imageAnalysis: ImageAnalysis? = null
 
     fun registerAiDirector(director: ImageAnalysis.Analyzer) {
         aiDirector = director
+        imageAnalysis?.setAnalyzer(cameraExecutor, director)
+    }
+
+    fun unregisterAiDirector() {
+        aiDirector = null
+        imageAnalysis?.clearAnalyzer()
     }
 
     /**
