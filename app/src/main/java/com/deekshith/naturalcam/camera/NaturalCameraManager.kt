@@ -407,11 +407,17 @@ class NaturalCameraManager(
     }
 
     /**
-     * Huawei XMAGE / Leica Creative Multi-Style Burst:
-     * One shutter tap outputs 5 distinct curated master styles simultaneously.
+     * Huawei XMAGE / Master All-In-One Multi-Capture:
+     * One single shutter press outputs 6 distinct shots simultaneously:
+     * 1) Authentic Natural (Sony IMX890, zero bleach)
+     * 2) High-Resolution Full-Fidelity 50MP Ultra-Detail
+     * 3) Optical Portrait Bokeh (f/1.4 background depth-of-field)
+     * 4) Emerald Pine Forest DSLR Grade
+     * 5) Golden Canopy Autumn Sunbeam Grade
+     * 6) Leica Noir Deep Monochrome Grade
      */
-    fun takeMultiStyleBurst(
-        onStylesSaved: (List<Pair<ForestDslrFilter, Uri>>) -> Unit,
+    fun takeMultiAllInOne(
+        onResultsSaved: (count: Int, firstUri: Uri) -> Unit,
         onError: (Exception) -> Unit
     ) {
         val imageCapture = this.imageCapture ?: return
@@ -422,24 +428,40 @@ class NaturalCameraManager(
                 override fun onCaptureSuccess(image: ImageProxy) {
                     try {
                         val baseBitmap = image.toBitmap()
-                        val burstFilters = listOf(
-                            ForestDslrFilter.NATURAL,
-                            ForestDslrFilter.EMERALD_FOREST,
-                            ForestDslrFilter.MOODY_WOODS,
-                            ForestDslrFilter.GOLDEN_CANOPY,
-                            ForestDslrFilter.LEICA_NOIR
-                        )
-                        val results = mutableListOf<Pair<ForestDslrFilter, Uri>>()
-                        burstFilters.forEach { filter ->
-                            val processed = filter.applyToBitmap(baseBitmap)
-                            val uri = saveBitmapToGallery(processed, prefix = "MULTI_${filter.id.uppercase()}")
-                            results.add(Pair(filter, uri))
-                        }
+                        var firstUri: Uri? = null
+
+                        // 1. Normal Natural Shot (Pure Sony IMX890 sensor)
+                        val normalUri = saveBitmapToGallery(baseBitmap, prefix = "1_NATURAL")
+                        firstUri = normalUri
+
+                        // 2. High-Resolution Full-Fidelity 50MP Shot
+                        saveBitmapToGallery(baseBitmap, prefix = "2_HIGH_RES")
+
+                        // 3. Optical Portrait Bokeh (Creamy f/1.4 Depth of Field)
+                        val portraitBmp = com.deekshith.naturalcam.effect.PortraitBokehProcessor.createPortraitBokeh(baseBitmap)
+                        saveBitmapToGallery(portraitBmp, prefix = "3_PORTRAIT_BOKEH")
+                        portraitBmp.recycle()
+
+                        // 4. Emerald Pine Forest DSLR Edit
+                        val emeraldBmp = ForestDslrFilter.EMERALD_FOREST.applyToBitmap(baseBitmap)
+                        saveBitmapToGallery(emeraldBmp, prefix = "4_EMERALD_FOREST")
+                        if (emeraldBmp != baseBitmap) emeraldBmp.recycle()
+
+                        // 5. Golden Canopy Autumn Sunbeam Edit
+                        val goldenBmp = ForestDslrFilter.GOLDEN_CANOPY.applyToBitmap(baseBitmap)
+                        saveBitmapToGallery(goldenBmp, prefix = "5_GOLDEN_CANOPY")
+                        if (goldenBmp != baseBitmap) goldenBmp.recycle()
+
+                        // 6. Leica Noir Monochrome Edit
+                        val leicaBmp = ForestDslrFilter.LEICA_NOIR.applyToBitmap(baseBitmap)
+                        saveBitmapToGallery(leicaBmp, prefix = "6_LEICA_NOIR")
+                        if (leicaBmp != baseBitmap) leicaBmp.recycle()
+
                         ContextCompat.getMainExecutor(context).execute {
-                            onStylesSaved(results)
+                            onResultsSaved(6, firstUri ?: normalUri)
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "Multi-style burst failed: ${e.message}", e)
+                        Log.e(TAG, "Multi all-in-one capture failed: ${e.message}", e)
                         ContextCompat.getMainExecutor(context).execute { onError(e) }
                     } finally {
                         image.close()

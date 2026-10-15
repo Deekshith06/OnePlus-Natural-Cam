@@ -49,6 +49,9 @@ import com.deekshith.naturalcam.camera.CameraMode
 import com.deekshith.naturalcam.camera.NaturalCameraManager
 import com.deekshith.naturalcam.filter.FilterCategory
 import com.deekshith.naturalcam.filter.ForestDslrFilter
+import com.deekshith.naturalcam.pose.PoseCategory
+import com.deekshith.naturalcam.pose.PoseGuide
+import com.deekshith.naturalcam.pose.PoseLibrary
 import com.deekshith.naturalcam.sensor.rememberOrientationSensor
 import com.deekshith.naturalcam.ui.theme.*
 import kotlinx.coroutines.delay
@@ -82,6 +85,11 @@ fun CameraScreen() {
 
     // Multi-Style Burst result notification
     var multiBurstBannerText by remember { mutableStateOf<String?>(null) }
+
+    // Huawei Smart Pose & Composition Director
+    var selectedPose by remember { mutableStateOf<PoseGuide?>(null) }
+    var showPoseDrawer by remember { mutableStateOf(false) }
+    var selectedPoseCategory by remember { mutableStateOf(PoseCategory.STANDING) }
 
     // Toggles
     var showExposureSlider by remember { mutableStateOf(false) }
@@ -216,6 +224,88 @@ fun CameraScreen() {
         // 2. Rule of Thirds Grid Overlay
         if (showGrid) {
             GridOverlay(modifier = Modifier.fillMaxSize())
+        }
+
+        // 2b. Huawei Smart Pose Silhouette Wireframe Guide Overlay
+        selectedPose?.let { pose ->
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                PoseLibrary.drawSilhouette(
+                    drawScope = this,
+                    shape = pose.silhouetteShape,
+                    color = AmberAccent.copy(alpha = 0.85f),
+                    size = size
+                )
+            }
+        }
+
+        // 2c. Huawei Smart Pose Coaching Banner (Where to Stand & Sit Advice)
+        AnimatedVisibility(
+            visible = selectedPose != null,
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 56.dp, start = 14.dp, end = 14.dp)
+        ) {
+            selectedPose?.let { pose ->
+                Surface(
+                    color = TranslucentBlack,
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, AmberAccent)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "💡 Huawei Pose Director",
+                                    color = AmberAccent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "• ${pose.name}",
+                                    color = White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            IconButton(
+                                onClick = { selectedPose = null },
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close Pose Guide",
+                                    tint = LightGray,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = pose.coachingTip,
+                            color = White.copy(alpha = 0.95f),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "📍 ${pose.whereToStandTip}",
+                            color = AmberAccent.copy(alpha = 0.85f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
 
         // 3. Digital Horizon Leveler
@@ -741,6 +831,117 @@ fun CameraScreen() {
                         modifier = Modifier.size(18.dp)
                     )
                 }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Huawei Smart Pose Guide Toggle Button
+                IconButton(
+                    onClick = {
+                        showPoseDrawer = !showPoseDrawer
+                        if (showPoseDrawer) showFilterSelector = false
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(
+                            if (showPoseDrawer || selectedPose != null) Color(0xFF00E676).copy(alpha = 0.85f) else TranslucentBlack,
+                            CircleShape
+                        )
+                        .border(
+                            1.dp,
+                            if (showPoseDrawer || selectedPose != null) Color(0xFF00E676) else White.copy(alpha = 0.4f),
+                            CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccessibilityNew,
+                        contentDescription = "Pose Guide",
+                        tint = if (showPoseDrawer || selectedPose != null) Black else White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Huawei Smart Pose Guide Drawer (Expands right above modes)
+            AnimatedVisibility(
+                visible = showPoseDrawer,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .background(TranslucentBlack, RoundedCornerShape(20.dp))
+                        .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                        .padding(vertical = 10.dp, horizontal = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Pose Category Tabs (Standing | Sitting | Close-Up | Forest / Nature)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    ) {
+                        items(PoseCategory.values()) { category ->
+                            val isCatSelected = selectedPoseCategory == category
+                            Text(
+                                text = "${category.icon} ${category.label}",
+                                color = if (isCatSelected) Color(0xFF00E676) else LightGray,
+                                fontSize = 11.sp,
+                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier
+                                    .clickable {
+                                        selectedPoseCategory = category
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                    .background(
+                                        if (isCatSelected) Color(0xFF00E676).copy(alpha = 0.2f) else Color.Transparent,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    // Pose Selection Cards
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val posesInCategory = PoseLibrary.poses.filter { it.category == selectedPoseCategory }
+                        items(posesInCategory) { pose ->
+                            val isPoseSelected = selectedPose == pose
+                            Surface(
+                                color = if (isPoseSelected) Color(0xFF00E676) else TranslucentBlack,
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, if (isPoseSelected) Color(0xFF00E676) else White.copy(alpha = 0.3f)),
+                                modifier = Modifier.clickable {
+                                    selectedPose = if (isPoseSelected) null else pose
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = pose.name,
+                                        color = if (isPoseSelected) Black else White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (isPoseSelected) "ACTIVE GUIDE" else "Tap to align",
+                                        color = if (isPoseSelected) Black.copy(alpha = 0.8f) else AmberAccent,
+                                        fontSize = 9.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Bottom Filter Drawer with Visual Swatches (Expands cleanly right above Modes)
@@ -968,18 +1169,16 @@ fun CameraScreen() {
                                 }
 
                                 CameraMode.MULTI -> {
-                                    // Huawei XMAGE / Leica Creative Multi-Style Burst
+                                    // Huawei XMAGE / Master All-In-One Multi-Capture
                                     isCapturing = true
-                                    cameraManager.takeMultiStyleBurst(
-                                        onStylesSaved = { burstResults ->
+                                    cameraManager.takeMultiAllInOne(
+                                        onResultsSaved = { count, firstUri ->
                                             isCapturing = false
-                                            if (burstResults.isNotEmpty()) {
-                                                lastCapturedUri = burstResults.first().second
-                                                multiBurstBannerText = "✨ 5 Master Styles Saved to Gallery!"
-                                                scope.launch {
-                                                    delay(3000)
-                                                    multiBurstBannerText = null
-                                                }
+                                            lastCapturedUri = firstUri
+                                            multiBurstBannerText = "✨ $count Photos Saved: Natural, 50MP High-Res, Portrait Bokeh & Master Styles!"
+                                            scope.launch {
+                                                delay(4000)
+                                                multiBurstBannerText = null
                                             }
                                         },
                                         onError = {
