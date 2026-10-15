@@ -186,7 +186,15 @@ class EnvironmentCoach(private val context: Context) {
                     recommendedEvDelta = 0.0f
                 )
             }
-            PlaceCategory.GENERAL, else -> {
+            PlaceCategory.GENERAL -> {
+                EnvironmentBaseInfo(
+                    title = "Natural Scene",
+                    compositionAdvice = "Natural portrait • Position subject inside the golden centering frame",
+                    lightingAdvice = "Balanced daylight • True-to-life Hasselblad color rendition",
+                    recommendedEvDelta = 0.0f
+                )
+            }
+            else -> {
                 EnvironmentBaseInfo(
                     title = "Natural Scene",
                     compositionAdvice = "Natural portrait • Position subject inside the golden centering frame",
