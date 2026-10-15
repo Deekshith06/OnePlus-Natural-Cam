@@ -20,7 +20,10 @@ data class SceneSuggestion(
     val subjectCenterY: Float = 0.48f,
     val hasHumanSubject: Boolean = false,
     val poseAlignmentHint: String = "Align subject with guide",
-    val lumaHistogram: IntArray = IntArray(16)
+    val lumaHistogram: IntArray = IntArray(16),
+    val recommendedZoom: Float = 1.0f,
+    val recommendedPoseId: String? = null,
+    val placeName: String? = null
 )
 
 class AiPhotographyDirector(
@@ -164,23 +167,33 @@ class AiPhotographyDirector(
             // Smart Scene Decision Matrix (Huawei Master AI + On-Device TFLite Neural Model)
             val suggestion = when {
                 // 0. High-Confidence On-Device Neural Model Detection (Qualcomm NPU)
-                neuralResult != null && neuralResult.confidence > 0.20f && neuralResult.category != SceneCategory.BALANCED_GENERAL -> {
+                // 0. High-Confidence On-Device Neural Model Place & Scene Detection (Qualcomm NPU)
+                neuralResult != null && neuralResult.confidence > 0.16f && neuralResult.placeCategory != PlaceCategory.GENERAL_BALANCED -> {
                     val recFilter = ForestDslrFilter.values().firstOrNull { it.id == neuralResult.recommendedFilterId }
                         ?: ForestDslrFilter.NATURAL
-                    val recMode = if (neuralResult.category == SceneCategory.PORTRAIT_HUMAN) CameraMode.PORTRAIT else CameraMode.PHOTO
+                    val recMode = if (neuralResult.placeCategory == PlaceCategory.PORTRAIT_STUDIO || hasPerson) {
+                        CameraMode.PORTRAIT
+                    } else if (neuralResult.placeCategory == PlaceCategory.LOW_LIGHT_NIGHT) {
+                        CameraMode.NIGHT
+                    } else {
+                        CameraMode.PHOTO
+                    }
 
                     SceneSuggestion(
-                        title = "🤖 ${neuralResult.topLabel} (${(neuralResult.confidence * 100).toInt()}%)",
-                        subtitle = neuralResult.coachingAdvice,
+                        title = "${neuralResult.placeCategory.icon} ${neuralResult.placeName}",
+                        subtitle = neuralResult.placeCoachingAdvice,
                         recommendedFilter = recFilter,
                         recommendedEv = neuralResult.recommendedEv,
                         recommendedMode = recMode,
-                        lightingDesc = "On-Device Neural NPU",
+                        lightingDesc = "Offline Neural Place Recognition (${(neuralResult.confidence * 100).toInt()}%)",
                         subjectCenterX = subjX,
                         subjectCenterY = subjY,
-                        hasHumanSubject = neuralResult.category == SceneCategory.PORTRAIT_HUMAN || hasPerson,
+                        hasHumanSubject = neuralResult.placeCategory == PlaceCategory.PORTRAIT_STUDIO || hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = neuralResult.recommendedZoom,
+                        recommendedPoseId = neuralResult.recommendedPoseId,
+                        placeName = neuralResult.placeName
                     )
                 }
 
@@ -197,7 +210,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = true,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 1.0f,
+                        recommendedPoseId = "forest_tree",
+                        placeName = "Forest Nature Trail"
                     )
                 }
 
@@ -214,7 +230,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 1.0f,
+                        recommendedPoseId = "forest_tree",
+                        placeName = "Canopy Sunbeam Forest"
                     )
                 }
 
@@ -231,7 +250,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 1.0f,
+                        recommendedPoseId = "forest_walker",
+                        placeName = "Woodland Foliage Trail"
                     )
                 }
 
@@ -248,7 +270,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = true,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 2.0f,
+                        recommendedPoseId = "portrait_three_quarter",
+                        placeName = "Portrait Studio"
                     )
                 }
 
@@ -265,7 +290,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 1.0f,
+                        recommendedPoseId = "portrait_three_quarter",
+                        placeName = "Nightscape Scene"
                     )
                 }
 
@@ -282,7 +310,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 2.0f,
+                        recommendedPoseId = "stand_profile",
+                        placeName = "Golden Hour Sunset"
                     )
                 }
 
@@ -299,7 +330,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 1.0f,
+                        recommendedPoseId = "stand_shoulder",
+                        placeName = "Twilight Blue Hour"
                     )
                 }
 
@@ -316,19 +350,22 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 1.0f,
+                        recommendedPoseId = "stand_profile",
+                        placeName = "High-Contrast Backlit Scene"
                     )
                 }
 
                 // 9. Balanced Natural Scene
                 else -> {
                     val title = if (neuralResult != null && neuralResult.confidence > 0.15f) {
-                        "🤖 AI: ${neuralResult.topLabel} (${(neuralResult.confidence * 100).toInt()}%)"
+                        "${neuralResult.placeCategory.icon} ${neuralResult.placeName} (${(neuralResult.confidence * 100).toInt()}%)"
                     } else {
                         "🌿 Natural Balanced Scene"
                     }
                     val sub = if (neuralResult != null && neuralResult.confidence > 0.15f) {
-                        neuralResult.coachingAdvice
+                        neuralResult.placeCoachingAdvice
                     } else {
                         "Optimal lighting. Zero-bleach Sony IMX890 natural tone active"
                     }
@@ -343,7 +380,10 @@ class AiPhotographyDirector(
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
                         poseAlignmentHint = alignmentHint,
-                        lumaHistogram = histogram
+                        lumaHistogram = histogram,
+                        recommendedZoom = 1.0f,
+                        recommendedPoseId = null,
+                        placeName = neuralResult?.placeName ?: "Balanced Natural Environment"
                     )
                 }
             }

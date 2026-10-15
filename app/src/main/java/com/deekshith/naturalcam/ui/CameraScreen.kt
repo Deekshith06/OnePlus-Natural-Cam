@@ -427,10 +427,15 @@ fun CameraScreen() {
                         Row(
                             modifier = Modifier
                                 .clickable {
-                                    // 1-Tap apply recommended settings
+                                    // 1-Tap apply place-based recommended settings
                                     selectedFilter = suggestion.recommendedFilter
                                     exposureEv = suggestion.recommendedEv
                                     cameraManager.setExposureEv(suggestion.recommendedEv)
+                                    selectedZoom = suggestion.recommendedZoom
+                                    cameraManager.setZoom(suggestion.recommendedZoom)
+                                    suggestion.recommendedPoseId?.let { poseId ->
+                                        selectedPose = PoseLibrary.poses.firstOrNull { it.id == poseId }
+                                    }
                                     if (currentMode != suggestion.recommendedMode && previewView != null) {
                                         cameraManager.switchMode(previewView!!, suggestion.recommendedMode) {
                                             currentMode = suggestion.recommendedMode
@@ -443,16 +448,26 @@ fun CameraScreen() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = suggestion.title,
-                                    color = AmberAccent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = suggestion.title,
+                                        color = AmberAccent,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "• ${if (suggestion.recommendedZoom == 1.0f) "1x" else if (suggestion.recommendedZoom == 2.0f) "2x" else "${suggestion.recommendedZoom}x"} • ${suggestion.recommendedFilter.displayName}",
+                                        color = White.copy(alpha = 0.7f),
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = suggestion.subtitle,
                                     color = White.copy(alpha = 0.9f),
-                                    fontSize = 10.sp
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
