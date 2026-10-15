@@ -2,11 +2,13 @@ package com.deekshith.naturalcam.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.camera.core.ImageCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -37,9 +41,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
+import com.deekshith.naturalcam.ai.AiPhotographyDirector
+import com.deekshith.naturalcam.ai.SceneSuggestion
 import com.deekshith.naturalcam.camera.AspectRatioMode
 import com.deekshith.naturalcam.camera.CameraMode
 import com.deekshith.naturalcam.camera.NaturalCameraManager
+import com.deekshith.naturalcam.filter.FilterCategory
 import com.deekshith.naturalcam.filter.ForestDslrFilter
 import com.deekshith.naturalcam.sensor.rememberOrientationSensor
 import com.deekshith.naturalcam.ui.theme.*
@@ -63,6 +70,18 @@ fun CameraScreen() {
     var exposureEv by remember { mutableFloatStateOf(-0.3f) }
     var aspectRatio by remember { mutableStateOf(AspectRatioMode.RATIO_4_3) }
 
+    // Filters
+    var selectedFilter by remember { mutableStateOf(ForestDslrFilter.NATURAL) }
+    var selectedCategory by remember { mutableStateOf(FilterCategory.ALL) }
+    var showFilterSelector by remember { mutableStateOf(false) }
+
+    // On-Device AI Scene Director (Huawei Master AI style)
+    var aiSuggestion by remember { mutableStateOf<SceneSuggestion?>(null) }
+    var isAiDirectorEnabled by remember { mutableStateOf(true) }
+
+    // Multi-Style Burst result notification
+    var multiBurstBannerText by remember { mutableStateOf<String?>(null) }
+
     // Toggles
     var showExposureSlider by remember { mutableStateOf(false) }
     var showProControls by remember { mutableStateOf(false) }
@@ -70,7 +89,7 @@ fun CameraScreen() {
     var showLeveler by remember { mutableStateOf(true) }
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_OFF) }
     var isTorchOn by remember { mutableStateOf(false) }
-    var timerDurationSec by remember { mutableIntStateOf(0) } // 0 = Off, 3s, 10s
+    var timerDurationSec by remember { mutableIntStateOf(0) }
     var countdownRemaining by remember { mutableIntStateOf(0) }
 
     // Pro settings
@@ -82,8 +101,6 @@ fun CameraScreen() {
     var recordingDurationSec by remember { mutableIntStateOf(0) }
 
     // Capture & Gallery
-    var selectedFilter by remember { mutableStateOf(ForestDslrFilter.NATURAL) }
-    var showFilterSelector by remember { mutableStateOf(false) }
     var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var focusPosition by remember { mutableStateOf<Offset?>(null) }
@@ -91,6 +108,18 @@ fun CameraScreen() {
     // Horizon leveler angle
     val rollAngle = rememberOrientationSensor(context)
     val isLevel = abs(rollAngle) <= 1.2f || abs(rollAngle - 90f) <= 1.2f || abs(rollAngle + 90f) <= 1.2f || abs(abs(rollAngle) - 180f) <= 1.2f
+
+    // Register AI Photography Director on launch
+    val currentAiEnabled by rememberUpdatedState(isAiDirectorEnabled)
+    DisposableEffect(cameraManager) {
+        val director = AiPhotographyDirector { suggestion ->
+            if (currentAiEnabled) {
+                aiSuggestion = suggestion
+            }
+        }
+        cameraManager.registerAiDirector(director)
+        onDispose { }
+    }
 
     // Video recording timer
     LaunchedEffect(isRecording) {
@@ -114,43 +143,57 @@ fun CameraScreen() {
             .fillMaxSize()
             .background(Black)
     ) {
-        // 1. Camera Preview Viewfinder with Pinch-to-Zoom & Tap-to-Focus
-        AndroidView(
-            factory = { ctx ->
-                PreviewView(ctx).apply {
-                    this.scaleType = PreviewView.ScaleType.FILL_CENTER
-                    previewView = this
-                    cameraManager.startCamera(
-                        previewView = this,
-                        mode = currentMode,
-                        aspectRatio = aspectRatio
-                    )
-                }
-            },
+        // 1. Camera Preview Viewfinder with Live 60fps Filter Preview
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, _, zoom, _ ->
-                        val newZoom = (selectedZoom * zoom).coerceIn(0.6f, 10.0f)
-                        selectedZoom = newZoom
-                        cameraManager.setZoom(newZoom)
+                .graphicsLayer {
+                    // Real-Time Viewfinder Filter Preview using hardware RenderEffect (Android 12+)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && selectedFilter != ForestDslrFilter.NATURAL) {
+                        renderEffect = android.graphics.RenderEffect.createColorFilterEffect(
+                            android.graphics.ColorMatrixColorFilter(selectedFilter.matrix)
+                        ).asComposeRenderEffect()
                     }
                 }
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        focusPosition = offset
-                        val factory = previewView?.meteringPointFactory
-                        if (factory != null) {
-                            val point = factory.createPoint(offset.x, offset.y)
-                            cameraManager.focusOnPoint(point)
-                        }
-                        scope.launch {
-                            delay(1800)
-                            focusPosition = null
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PreviewView(ctx).apply {
+                        this.scaleType = PreviewView.ScaleType.FILL_CENTER
+                        this.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        previewView = this
+                        cameraManager.startCamera(
+                            previewView = this,
+                            mode = currentMode,
+                            aspectRatio = aspectRatio
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            val newZoom = (selectedZoom * zoom).coerceIn(0.6f, 10.0f)
+                            selectedZoom = newZoom
+                            cameraManager.setZoom(newZoom)
                         }
                     }
-                }
-        )
+                    .pointerInput(Unit) {
+                        detectTapGestures { offset ->
+                            focusPosition = offset
+                            val factory = previewView?.meteringPointFactory
+                            if (factory != null) {
+                                val point = factory.createPoint(offset.x, offset.y)
+                                cameraManager.focusOnPoint(point)
+                            }
+                            scope.launch {
+                                delay(1800)
+                                focusPosition = null
+                            }
+                        }
+                    }
+            )
+        }
 
         // 2. Rule of Thirds Grid Overlay
         if (showGrid) {
@@ -248,11 +291,11 @@ fun CameraScreen() {
                 )
             }
 
-            // Natural Tone / DSLR Filter Badge (Tap to toggle DSLR Forest Filters)
+            // Natural Tone / Active DSLR Filter Badge (Tap to Open Filter Suite)
             Surface(
                 color = TranslucentBlack,
                 shape = RoundedCornerShape(16.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, OnePlusRed.copy(alpha = 0.6f)),
+                border = BorderStroke(1.dp, if (selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else OnePlusRed.copy(alpha = 0.6f)),
                 modifier = Modifier.clickable {
                     showFilterSelector = !showFilterSelector
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -277,6 +320,7 @@ fun CameraScreen() {
                                 CameraMode.PORTRAIT -> "PORTRAIT"
                                 CameraMode.NIGHT -> "NIGHTSCAPE"
                                 CameraMode.VIDEO -> "4K UHD"
+                                CameraMode.MULTI -> "MULTI-STYLE"
                                 else -> "NATURAL TONE"
                             }
                         },
@@ -326,7 +370,73 @@ fun CameraScreen() {
             }
         }
 
-        // 6b. DSLR Forest Photography Filters Pill Strip (Slides in when tapped)
+        // 7. On-Device Offline AI Scene Director Floating Card (Huawei Master AI Style)
+        AnimatedVisibility(
+            visible = aiSuggestion != null && !showFilterSelector,
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 56.dp)
+        ) {
+            aiSuggestion?.let { suggestion ->
+                Surface(
+                    color = TranslucentBlack,
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.7f)),
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clickable {
+                                // 1-Tap apply recommended settings
+                                selectedFilter = suggestion.recommendedFilter
+                                exposureEv = suggestion.recommendedEv
+                                cameraManager.setExposureEv(suggestion.recommendedEv)
+                                if (currentMode != suggestion.recommendedMode && previewView != null) {
+                                    cameraManager.switchMode(previewView!!, suggestion.recommendedMode) {
+                                        currentMode = suggestion.recommendedMode
+                                    }
+                                }
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                aiSuggestion = null
+                            }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = suggestion.title,
+                                color = AmberAccent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = suggestion.subtitle,
+                                color = White.copy(alpha = 0.9f),
+                                fontSize = 10.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = AmberAccent,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(
+                                text = "APPLY",
+                                color = Black,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 8. DSLR Forest & Low-Light Filter Suite Drawer
         AnimatedVisibility(
             visible = showFilterSelector,
             enter = fadeIn() + expandVertically(),
@@ -336,22 +446,50 @@ fun CameraScreen() {
                 .statusBarsPadding()
                 .padding(top = 56.dp)
         ) {
-            Surface(
-                color = TranslucentBlack,
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.padding(horizontal = 16.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .background(TranslucentBlack, RoundedCornerShape(20.dp))
+                    .padding(10.dp)
             ) {
+                // Category Tabs (All / Forest & Nature / Low-Light & Night / Black & White)
                 LazyRow(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    items(FilterCategory.values()) { category ->
+                        val isCatSelected = selectedCategory == category
+                        Text(
+                            text = category.label,
+                            color = if (isCatSelected) AmberAccent else LightGray,
+                            fontSize = 11.sp,
+                            fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier
+                                .clickable {
+                                    selectedCategory = category
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Filter Pills
+                LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(ForestDslrFilter.values()) { filter ->
+                    val filteredList = ForestDslrFilter.values().filter {
+                        selectedCategory == FilterCategory.ALL || it.category == selectedCategory || it == ForestDslrFilter.NATURAL
+                    }
+
+                    items(filteredList) { filter ->
                         val isSelected = selectedFilter == filter
                         Surface(
                             color = if (isSelected) AmberAccent else Color.Transparent,
                             shape = RoundedCornerShape(14.dp),
-                            border = if (!isSelected) androidx.compose.foundation.BorderStroke(1.dp, White.copy(alpha = 0.25f)) else null,
+                            border = if (!isSelected) BorderStroke(1.dp, White.copy(alpha = 0.25f)) else null,
                             modifier = Modifier.clickable {
                                 selectedFilter = filter
                                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -370,7 +508,31 @@ fun CameraScreen() {
             }
         }
 
-        // 7. Video Recording Duration Timer (When Recording)
+        // 9. Multi-Style Burst Notification Toast
+        AnimatedVisibility(
+            visible = multiBurstBannerText != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 180.dp)
+        ) {
+            Surface(
+                color = TranslucentBlack,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, AmberAccent)
+            ) {
+                Text(
+                    text = multiBurstBannerText ?: "",
+                    color = White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+
+        // 10. Video Recording Duration Timer (When Recording)
         if (isRecording) {
             Box(
                 modifier = Modifier
@@ -391,7 +553,7 @@ fun CameraScreen() {
             }
         }
 
-        // 8. Exposure Compensation Dial (-2.0 EV to +2.0 EV)
+        // 11. Exposure Compensation Dial (-2.0 EV to +2.0 EV)
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -442,7 +604,7 @@ fun CameraScreen() {
             }
         }
 
-        // 9. PRO Mode Manual Controls Sheet (When in PRO mode)
+        // 12. PRO Mode Manual Controls Sheet (When in PRO mode)
         if (currentMode == CameraMode.PRO) {
             Column(
                 modifier = Modifier
@@ -451,7 +613,6 @@ fun CameraScreen() {
                     .background(TranslucentBlack, RoundedCornerShape(16.dp))
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                // ISO Selector
                 Text("ISO", color = LightGray, fontSize = 10.sp)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val isos = listOf(null, 100, 200, 400, 800, 1600, 3200)
@@ -474,7 +635,7 @@ fun CameraScreen() {
             }
         }
 
-        // 10. Bottom Control Area
+        // 13. Bottom Control Area
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -526,7 +687,7 @@ fun CameraScreen() {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -534,6 +695,7 @@ fun CameraScreen() {
                     CameraMode.PRO to "PRO",
                     CameraMode.PORTRAIT to "PORTRAIT",
                     CameraMode.PHOTO to "PHOTO",
+                    CameraMode.MULTI to "MULTI",
                     CameraMode.VIDEO to "VIDEO",
                     CameraMode.NIGHT to "NIGHT"
                 ).forEach { (mode, label) ->
@@ -541,7 +703,7 @@ fun CameraScreen() {
                     Text(
                         text = label,
                         color = if (isSelected) AmberAccent else LightGray,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         modifier = Modifier
                             .clickable {
@@ -554,7 +716,7 @@ fun CameraScreen() {
                                     }
                                 }
                             }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
                     )
                 }
             }
@@ -604,51 +766,82 @@ fun CameraScreen() {
                     }
                 }
 
-                // Shutter / Record Button
+                // Shutter / Record / Multi-Burst Button
                 Box(
                     modifier = Modifier
                         .size(80.dp)
-                        .border(4.dp, White, CircleShape)
+                        .border(4.dp, if (currentMode == CameraMode.MULTI) AmberAccent else White, CircleShape)
                         .padding(6.dp)
                         .clip(if (isRecording) RoundedCornerShape(12.dp) else CircleShape)
-                        .background(if (currentMode == CameraMode.VIDEO || isRecording) OnePlusRed else White)
+                        .background(
+                            when {
+                                currentMode == CameraMode.VIDEO || isRecording -> OnePlusRed
+                                currentMode == CameraMode.MULTI -> AmberAccent
+                                else -> White
+                            }
+                        )
                         .clickable(enabled = !isCapturing) {
                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
 
-                            if (currentMode == CameraMode.VIDEO) {
-                                if (isRecording) {
-                                    cameraManager.stopVideoRecording()
-                                    isRecording = false
-                                } else {
-                                    isRecording = true
-                                    cameraManager.startVideoRecording { event ->
-                                        if (event is VideoRecordEvent.Finalize) {
-                                            isRecording = false
-                                            if (!event.hasError()) {
-                                                lastCapturedUri = event.outputResults.outputUri
+                            when (currentMode) {
+                                CameraMode.VIDEO -> {
+                                    if (isRecording) {
+                                        cameraManager.stopVideoRecording()
+                                        isRecording = false
+                                    } else {
+                                        isRecording = true
+                                        cameraManager.startVideoRecording { event ->
+                                            if (event is VideoRecordEvent.Finalize) {
+                                                isRecording = false
+                                                if (!event.hasError()) {
+                                                    lastCapturedUri = event.outputResults.outputUri
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            } else {
-                                // Photo / Pro / Portrait / Night mode
-                                if (timerDurationSec > 0) {
-                                    scope.launch {
-                                        countdownRemaining = timerDurationSec
-                                        while (countdownRemaining > 0) {
-                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                            delay(1000)
-                                            countdownRemaining--
+
+                                CameraMode.MULTI -> {
+                                    // Huawei XMAGE / Leica Creative Multi-Style Burst
+                                    isCapturing = true
+                                    cameraManager.takeMultiStyleBurst(
+                                        onStylesSaved = { burstResults ->
+                                            isCapturing = false
+                                            if (burstResults.isNotEmpty()) {
+                                                lastCapturedUri = burstResults.first().second
+                                                multiBurstBannerText = "✨ 5 Master Styles Saved to Gallery!"
+                                                scope.launch {
+                                                    delay(3000)
+                                                    multiBurstBannerText = null
+                                                }
+                                            }
+                                        },
+                                        onError = {
+                                            isCapturing = false
                                         }
+                                    )
+                                }
+
+                                else -> {
+                                    // Photo / Pro / Portrait / Night mode
+                                    if (timerDurationSec > 0) {
+                                        scope.launch {
+                                            countdownRemaining = timerDurationSec
+                                            while (countdownRemaining > 0) {
+                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                                delay(1000)
+                                                countdownRemaining--
+                                            }
+                                            performPhotoCapture(cameraManager, selectedFilter) { uri ->
+                                                lastCapturedUri = uri
+                                            }
+                                        }
+                                    } else {
+                                        isCapturing = true
                                         performPhotoCapture(cameraManager, selectedFilter) { uri ->
+                                            isCapturing = false
                                             lastCapturedUri = uri
                                         }
-                                    }
-                                } else {
-                                    isCapturing = true
-                                    performPhotoCapture(cameraManager, selectedFilter) { uri ->
-                                        isCapturing = false
-                                        lastCapturedUri = uri
                                     }
                                 }
                             }
@@ -697,7 +890,6 @@ fun HorizonLeveler(isLevel: Boolean, modifier: Modifier = Modifier) {
         val lineColor = if (isLevel) Color(0xFF00E676) else Color.White.copy(alpha = 0.4f)
         val stroke = if (isLevel) 2.5.dp.toPx() else 1.5.dp.toPx()
 
-        // Left and right horizon markers
         drawLine(
             color = lineColor,
             start = Offset(0f, size.height / 2),

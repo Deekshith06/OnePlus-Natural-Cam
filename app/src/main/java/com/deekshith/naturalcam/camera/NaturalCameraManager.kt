@@ -32,7 +32,8 @@ enum class CameraMode {
     VIDEO,
     PRO,
     PORTRAIT,
-    NIGHT
+    NIGHT,
+    MULTI
 }
 
 enum class AspectRatioMode {
@@ -135,7 +136,17 @@ class NaturalCameraManager(
                     .build()
                 videoCapture = VideoCapture.withOutput(recorder)
 
-                // 4. Bind Use Cases to Lifecycle
+                // 4. On-Device Offline AI Scene Analysis Use Case
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setTargetAspectRatio(targetAspectRatio)
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+
+                aiDirector?.let { director ->
+                    imageAnalysis.setAnalyzer(cameraExecutor, director)
+                }
+
+                // 5. Bind Use Cases to Lifecycle
                 val cameraSelector = CameraSelector.Builder()
                     .requireLensFacing(currentLensFacing)
                     .build()
@@ -150,12 +161,22 @@ class NaturalCameraManager(
                         videoCapture
                     )
                 } else {
-                    cameraProvider?.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview,
-                        imageCapture
-                    )
+                    if (aiDirector != null) {
+                        cameraProvider?.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            imageCapture,
+                            imageAnalysis
+                        )
+                    } else {
+                        cameraProvider?.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            imageCapture
+                        )
+                    }
                 }
 
                 camera?.cameraInfo?.let { onCameraReady(it) }
@@ -379,8 +400,62 @@ class NaturalCameraManager(
         }
     }
 
-    private fun saveBitmapToGallery(bitmap: android.graphics.Bitmap): Uri {
-        val name = "IMG_DSLR_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
+    var aiDirector: ImageAnalysis.Analyzer? = null
+
+    fun registerAiDirector(director: ImageAnalysis.Analyzer) {
+        aiDirector = director
+    }
+
+    /**
+     * Huawei XMAGE / Leica Creative Multi-Style Burst:
+     * One shutter tap outputs 5 distinct curated master styles simultaneously.
+     */
+    fun takeMultiStyleBurst(
+        onStylesSaved: (List<Pair<ForestDslrFilter, Uri>>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val imageCapture = this.imageCapture ?: return
+
+        imageCapture.takePicture(
+            cameraExecutor,
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureSuccess(image: ImageProxy) {
+                    try {
+                        val baseBitmap = image.toBitmap()
+                        val burstFilters = listOf(
+                            ForestDslrFilter.NATURAL,
+                            ForestDslrFilter.EMERALD_FOREST,
+                            ForestDslrFilter.MOODY_WOODS,
+                            ForestDslrFilter.GOLDEN_CANOPY,
+                            ForestDslrFilter.LEICA_NOIR
+                        )
+                        val results = mutableListOf<Pair<ForestDslrFilter, Uri>>()
+                        burstFilters.forEach { filter ->
+                            val processed = filter.applyToBitmap(baseBitmap)
+                            val uri = saveBitmapToGallery(processed, prefix = "MULTI_${filter.id.uppercase()}")
+                            results.add(Pair(filter, uri))
+                        }
+                        ContextCompat.getMainExecutor(context).execute {
+                            onStylesSaved(results)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Multi-style burst failed: ${e.message}", e)
+                        ContextCompat.getMainExecutor(context).execute { onError(e) }
+                    } finally {
+                        image.close()
+                    }
+                }
+
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "Multi-style capture failed: ${exc.message}", exc)
+                    ContextCompat.getMainExecutor(context).execute { onError(exc) }
+                }
+            }
+        )
+    }
+
+    private fun saveBitmapToGallery(bitmap: android.graphics.Bitmap, prefix: String = "IMG_DSLR"): Uri {
+        val name = "${prefix}_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
