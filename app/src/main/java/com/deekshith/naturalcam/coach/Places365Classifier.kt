@@ -27,6 +27,9 @@ class Places365Classifier(private val context: Context) {
     private var currentActivePlace: PlaceCategory = PlaceCategory.GENERAL
     private var lastCategorySwitchTimestamp = 0L
     
+    private var inputBuffer: ByteBuffer? = null
+    private var isNCHW = true
+
     var isInitialized = false
         private set
 
@@ -49,40 +52,40 @@ class Places365Classifier(private val context: Context) {
             val fileChannel = inputStream.channel
             val modelBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
 
-            try {
-                val options = Interpreter.Options().apply {
-                    setNumThreads(4)
-                    setUseNNAPI(true) // Leverage Qualcomm Hexagon NPU
-                }
-                interpreter = Interpreter(modelBuffer, options)
-                isInitialized = true
-                Log.i(TAG, "Places365 ResNet18 loaded with NPU acceleration (${categories.size} categories)")
-            } catch (e: Exception) {
-                Log.w(TAG, "NPU failed for Places365 (${e.message}), falling back to 4-thread CPU")
-                val fallbackOptions = Interpreter.Options().apply {
-                    setNumThreads(4)
-                }
-                interpreter = Interpreter(modelBuffer, fallbackOptions)
-                isInitialized = true
-                Log.i(TAG, "Places365 ResNet18 loaded with 4-thread CPU (${categories.size} categories)")
+            // Use 4-thread CPU with XNNPACK - stable, high throughput, avoids vendor NNAPI driver segfaults on Android 16
+            val options = Interpreter.Options().apply {
+                setNumThreads(4)
             }
+            interpreter = Interpreter(modelBuffer, options)
+            isInitialized = true
+            initBuffer()
+            Log.i(TAG, "Places365 ResNet18 loaded with 4-thread CPU (${categories.size} categories)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize Places365 model: ${e.message}", e)
         }
     }
 
+    private fun initBuffer() {
+        val tflite = interpreter ?: return
+        val inTensor = tflite.getInputTensor(0)
+        val shape = inTensor.shape()
+        // Check if NCHW [1, 3, 224, 224] or NHWC [1, 224, 224, 3]
+        isNCHW = (shape.size == 4 && shape[1] == 3)
+        val totalBytes = 1 * 3 * 224 * 224 * 4 // Float32
+        inputBuffer = ByteBuffer.allocateDirect(totalBytes).apply {
+            order(ByteOrder.nativeOrder())
+        }
+        Log.i(TAG, "Places365 buffer initialized: shape=${shape.contentToString()} isNCHW=$isNCHW type=${inTensor.dataType()}")
+    }
+
     fun classify(bitmap: Bitmap): Pair<List<SceneCategoryScore>, PlaceCategory> {
         val tflite = interpreter ?: return Pair(emptyList(), PlaceCategory.GENERAL)
+        val buf = inputBuffer ?: return Pair(emptyList(), PlaceCategory.GENERAL)
         if (!isInitialized || categories.isEmpty()) return Pair(emptyList(), PlaceCategory.GENERAL)
 
         try {
             val scaled = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
-            
-            // Model expects NCHW [1, 3, 224, 224] float32 with ImageNet normalization
-            val inputBuffer = ByteBuffer.allocateDirect(1 * 3 * 224 * 224 * 4).apply {
-                order(ByteOrder.nativeOrder())
-                rewind()
-            }
+            buf.rewind()
 
             val intValues = IntArray(224 * 224)
             scaled.getPixels(intValues, 0, 224, 0, 0, 224, 224)
@@ -91,27 +94,39 @@ class Places365Classifier(private val context: Context) {
             val meanR = 0.485f; val meanG = 0.456f; val meanB = 0.406f
             val stdR = 0.229f;  val stdG = 0.224f;  val stdB = 0.225f
 
-            // Channel R
-            for (pixel in intValues) {
-                val r = (((pixel shr 16) and 0xFF) / 255.0f - meanR) / stdR
-                inputBuffer.putFloat(r)
-            }
-            // Channel G
-            for (pixel in intValues) {
-                val g = (((pixel shr 8) and 0xFF) / 255.0f - meanG) / stdG
-                inputBuffer.putFloat(g)
-            }
-            // Channel B
-            for (pixel in intValues) {
-                val b = ((pixel and 0xFF) / 255.0f - meanB) / stdB
-                inputBuffer.putFloat(b)
+            if (isNCHW) {
+                // Channel R
+                for (pixel in intValues) {
+                    val r = (((pixel shr 16) and 0xFF) / 255.0f - meanR) / stdR
+                    buf.putFloat(r)
+                }
+                // Channel G
+                for (pixel in intValues) {
+                    val g = (((pixel shr 8) and 0xFF) / 255.0f - meanG) / stdG
+                    buf.putFloat(g)
+                }
+                // Channel B
+                for (pixel in intValues) {
+                    val b = ((pixel and 0xFF) / 255.0f - meanB) / stdB
+                    buf.putFloat(b)
+                }
+            } else {
+                // NHWC
+                for (pixel in intValues) {
+                    val r = (((pixel shr 16) and 0xFF) / 255.0f - meanR) / stdR
+                    val g = (((pixel shr 8) and 0xFF) / 255.0f - meanG) / stdG
+                    val b = ((pixel and 0xFF) / 255.0f - meanB) / stdB
+                    buf.putFloat(r)
+                    buf.putFloat(g)
+                    buf.putFloat(b)
+                }
             }
 
             if (scaled != bitmap) scaled.recycle()
 
             // Run inference: Output logits [1, 365]
             val outputLogits = Array(1) { FloatArray(categories.size) }
-            tflite.run(inputBuffer, outputLogits)
+            tflite.run(buf, outputLogits)
 
             // Compute Softmax probabilities
             val rawLogits = outputLogits[0]

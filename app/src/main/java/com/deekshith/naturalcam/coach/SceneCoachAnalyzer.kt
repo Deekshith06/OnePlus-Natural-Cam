@@ -2,6 +2,7 @@ package com.deekshith.naturalcam.coach
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -34,6 +35,11 @@ class SceneCoachAnalyzer(
     @Volatile var currentZoom: Float = 1.0f
     @Volatile var currentIso: Int = 100
     @Volatile var currentExposureTimeNs: Long = 10_000_000L
+    @Volatile var isPoseGuideEnabled: Boolean = false
+        set(value) {
+            field = value
+            ruleEngine.isPoseGuideEnabled = value
+        }
 
     // Metrics for Telemetry
     private var frameCount = 0
@@ -77,10 +83,19 @@ class SceneCoachAnalyzer(
             val angularSpeed = geometryAnalyzer.currentAngularSpeedRadS
             val laplacianVar = GeometryAnalyzer.computeLaplacianVariance(image)
 
-            // 3. Extract Bitmap for Offline Neural Inference
+            // 3. Extract Bitmap for Offline Neural Inference (Oriented Upright)
             var frameBitmap: Bitmap? = null
             try {
-                frameBitmap = image.toBitmap()
+                val rawBitmap = image.toBitmap()
+                val rotation = image.imageInfo.rotationDegrees
+                frameBitmap = if (rotation != 0) {
+                    val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                    Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true).also {
+                        if (it != rawBitmap) rawBitmap.recycle()
+                    }
+                } else {
+                    rawBitmap
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to convert ImageProxy to Bitmap: ${e.message}")
             }

@@ -13,6 +13,7 @@ class RuleEngine(private val closedLoopTracker: ClosedLoopTracker) {
 
     private var currentActiveSuggestion: CoachSuggestion? = null
     private var lastSuggestionChangeTimestamp = 0L
+    var isPoseGuideEnabled: Boolean = false
 
     /**
      * Evaluates all candidate suggestions from the measured frame state,
@@ -215,7 +216,12 @@ class RuleEngine(private val closedLoopTracker: ClosedLoopTracker) {
             val poseAnalysis = evaluatePoseGuidance(pose, frameState)
             targetSkeleton = poseAnalysis.second
             if (poseAnalysis.first != null && !closedLoopTracker.isSuppressed("rule_pose_coach")) {
-                candidates.add(poseAnalysis.first!!)
+                val suggestion = if (isPoseGuideEnabled) {
+                    poseAnalysis.first!!.copy(priority = 2)
+                } else {
+                    poseAnalysis.first!!
+                }
+                candidates.add(suggestion)
             }
         }
 

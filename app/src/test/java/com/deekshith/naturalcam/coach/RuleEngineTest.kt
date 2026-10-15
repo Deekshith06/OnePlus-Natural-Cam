@@ -221,4 +221,39 @@ class RuleEngineTest {
         assertEquals("Pose Matched (Good)", skeleton!!.alignmentHint)
         assertTrue("Match score must be >= 0.82", skeleton.matchScore >= 0.82f)
     }
+
+    @Test
+    fun testPoseCoaching_whenPoseGuideEnabled_elevatesPriority() {
+        val box = CoachRectF(0.3f, 0.15f, 0.7f, 0.85f)
+        val kps = listOf(
+            PoseKeypoint(0, 0.5f, 0.2f, 0.9f),
+            PoseKeypoint(5, 0.4f, 0.32f, 0.9f),
+            PoseKeypoint(6, 0.6f, 0.32f, 0.9f),
+            PoseKeypoint(11, 0.42f, 0.55f, 0.9f),
+            PoseKeypoint(12, 0.58f, 0.55f, 0.9f)
+        )
+        val leaningPose = HumanPoseState(
+            boundingBox = box,
+            keypoints = kps,
+            isStanding = true,
+            isSitting = false,
+            torsoLeanAngleDeg = 18.0f,
+            headTiltAngleDeg = 0.0f,
+            handsVisible = true,
+            gridPosition = GridThirdsRegion.CENTER_THIRD
+        )
+
+        // With pitch tilt present (-20° pitch tilt is priority 8)
+        val state = MeasuredFrameState(
+            cameraPitchDeg = -20.0f,
+            poseState = leaningPose
+        )
+
+        ruleEngine.isPoseGuideEnabled = true
+        val (suggestion, _) = ruleEngine.evaluate(state)
+        assertNotNull(suggestion)
+        assertEquals("rule_pose_coach", suggestion!!.id)
+        assertEquals(2, suggestion.priority)
+        assertEquals("Straighten Pose", suggestion.shortLabel)
+    }
 }

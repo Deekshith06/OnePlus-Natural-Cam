@@ -3,6 +3,7 @@ package com.deekshith.naturalcam.coach
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -20,6 +21,8 @@ import kotlin.math.min
  */
 class MoveNetPoseDetector(private val context: Context) {
     private var interpreter: Interpreter? = null
+    private var inputBuffer: ByteBuffer? = null
+    private var inputDataType: DataType = DataType.UINT8
     var isInitialized = false
         private set
 
@@ -34,54 +37,83 @@ class MoveNetPoseDetector(private val context: Context) {
             val fileChannel = inputStream.channel
             val modelBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
 
-            try {
-                val options = Interpreter.Options().apply {
-                    setNumThreads(4)
-                    setUseNNAPI(true)
-                }
-                interpreter = Interpreter(modelBuffer, options)
-                isInitialized = true
-                Log.i(TAG, "MoveNet Lightning loaded with NPU acceleration")
-            } catch (e: Exception) {
-                Log.w(TAG, "NPU failed for MoveNet (${e.message}), falling back to 4-thread CPU")
-                val fallbackOptions = Interpreter.Options().apply {
-                    setNumThreads(4)
-                }
-                interpreter = Interpreter(modelBuffer, fallbackOptions)
-                isInitialized = true
-                Log.i(TAG, "MoveNet Lightning loaded with 4-thread CPU")
+            // Use 4-thread CPU with XNNPACK - stable, high throughput, avoids vendor NNAPI driver segfaults on Android 16
+            val options = Interpreter.Options().apply {
+                setNumThreads(4)
             }
+            interpreter = Interpreter(modelBuffer, options)
+            isInitialized = true
+            initBuffer()
+            Log.i(TAG, "MoveNet Lightning loaded with 4-thread CPU")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize MoveNet: ${e.message}", e)
         }
     }
 
+    private fun initBuffer() {
+        val tflite = interpreter ?: return
+        val tensor = tflite.getInputTensor(0)
+        inputDataType = tensor.dataType()
+        val bytesPerChannel = when (inputDataType) {
+            DataType.UINT8, DataType.INT8 -> 1
+            DataType.INT32, DataType.FLOAT32 -> 4
+            else -> 1
+        }
+        val totalBytes = 1 * 192 * 192 * 3 * bytesPerChannel
+        inputBuffer = ByteBuffer.allocateDirect(totalBytes).apply {
+            order(ByteOrder.nativeOrder())
+        }
+        Log.i(TAG, "MoveNet initialized: input shape=${tensor.shape().contentToString()} type=$inputDataType bufferBytes=$totalBytes")
+    }
+
     fun estimatePose(bitmap: Bitmap): HumanPoseState? {
         val tflite = interpreter ?: return null
+        val buf = inputBuffer ?: return null
         if (!isInitialized) return null
 
         try {
             val scaled = Bitmap.createScaledBitmap(bitmap, 192, 192, true)
-            val inputBuffer = ByteBuffer.allocateDirect(1 * 192 * 192 * 3 * 4).apply {
-                order(ByteOrder.nativeOrder())
-                rewind()
-            }
+            buf.rewind()
 
             val intValues = IntArray(192 * 192)
             scaled.getPixels(intValues, 0, 192, 0, 0, 192, 192)
 
-            for (pixel in intValues) {
-                // MoveNet float32 input [0..255] or [0..1]
-                inputBuffer.putFloat(((pixel shr 16) and 0xFF).toFloat())
-                inputBuffer.putFloat(((pixel shr 8) and 0xFF).toFloat())
-                inputBuffer.putFloat((pixel and 0xFF).toFloat())
+            when (inputDataType) {
+                DataType.UINT8 -> {
+                    for (pixel in intValues) {
+                        buf.put(((pixel shr 16) and 0xFF).toByte())
+                        buf.put(((pixel shr 8) and 0xFF).toByte())
+                        buf.put((pixel and 0xFF).toByte())
+                    }
+                }
+                DataType.INT32 -> {
+                    for (pixel in intValues) {
+                        buf.putInt((pixel shr 16) and 0xFF)
+                        buf.putInt((pixel shr 8) and 0xFF)
+                        buf.putInt(pixel and 0xFF)
+                    }
+                }
+                DataType.INT8 -> {
+                    for (pixel in intValues) {
+                        buf.put((((pixel shr 16) and 0xFF) - 128).toByte())
+                        buf.put((((pixel shr 8) and 0xFF) - 128).toByte())
+                        buf.put(((pixel and 0xFF) - 128).toByte())
+                    }
+                }
+                else -> { // FLOAT32
+                    for (pixel in intValues) {
+                        buf.putFloat(((pixel shr 16) and 0xFF).toFloat())
+                        buf.putFloat(((pixel shr 8) and 0xFF).toFloat())
+                        buf.putFloat((pixel and 0xFF).toFloat())
+                    }
+                }
             }
 
             if (scaled != bitmap) scaled.recycle()
 
             // Output tensor [1, 1, 17, 3]: [y, x, score]
             val outputTensor = Array(1) { Array(1) { Array(17) { FloatArray(3) } } }
-            tflite.run(inputBuffer, outputTensor)
+            tflite.run(buf, outputTensor)
 
             val rawKeypoints = outputTensor[0][0]
             val keypoints = mutableListOf<PoseKeypoint>()

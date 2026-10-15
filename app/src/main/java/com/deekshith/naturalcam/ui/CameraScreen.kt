@@ -100,11 +100,16 @@ fun CameraScreen() {
         val coach = SceneCoachAnalyzer(context) { state ->
             coachUiState = state
         }
+        coach.isPoseGuideEnabled = isPoseGuideEnabled
         cameraManager.registerSceneCoach(coach)
         onDispose {
             cameraManager.unregisterSceneCoach()
             coach.close()
         }
+    }
+
+    LaunchedEffect(isPoseGuideEnabled) {
+        cameraManager.sceneCoachAnalyzer?.isPoseGuideEnabled = isPoseGuideEnabled
     }
 
     // Video recording timer
@@ -331,25 +336,38 @@ fun CameraScreen() {
                 )
             }
 
-            // Opt-In Pose Guide Skeleton Toggle
-            IconButton(
-                onClick = {
-                    isPoseGuideEnabled = !isPoseGuideEnabled
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                },
+            // Prominent Pose Coach Toggle Pill
+            Surface(
+                color = if (isPoseGuideEnabled) Color(0xFF00E676) else TranslucentBlack,
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isPoseGuideEnabled) Color(0xFF00E676) else White.copy(alpha = 0.45f)
+                ),
                 modifier = Modifier
-                    .background(
-                        if (isPoseGuideEnabled) Color(0xFF00E676).copy(alpha = 0.85f) else TranslucentBlack,
-                        CircleShape
-                    )
-                    .size(40.dp)
+                    .clickable {
+                        isPoseGuideEnabled = !isPoseGuideEnabled
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
             ) {
-                Icon(
-                    imageVector = Icons.Default.AccessibilityNew,
-                    contentDescription = "Pose Guide",
-                    tint = if (isPoseGuideEnabled) Black else White,
-                    modifier = Modifier.size(20.dp)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccessibilityNew,
+                        contentDescription = "Pose Coach",
+                        tint = if (isPoseGuideEnabled) Black else AmberAccent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isPoseGuideEnabled) "POSE ON" else "POSE",
+                        color = if (isPoseGuideEnabled) Black else White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             // Grid Toggle
@@ -413,6 +431,45 @@ fun CameraScreen() {
                         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     }
                 )
+            }
+        }
+
+        // 8b. Contextual Pose Coach Floating Action (Huawei Master AI style)
+        if (!showDebugOverlay && (coachUiState.hasHumanSubject || currentMode == CameraMode.PORTRAIT)) {
+            Surface(
+                color = if (isPoseGuideEnabled) Color(0xDD00E676) else Color(0xCC18181A),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(
+                    1.2.dp,
+                    if (isPoseGuideEnabled) Color(0xFF00E676) else AmberAccent.copy(alpha = 0.8f)
+                ),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 110.dp, end = 16.dp)
+                    .clickable {
+                        isPoseGuideEnabled = !isPoseGuideEnabled
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccessibilityNew,
+                        contentDescription = "Pose Coach",
+                        tint = if (isPoseGuideEnabled) Black else AmberAccent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (isPoseGuideEnabled) "Pose Guide: ON" else "Pose Guide: OFF",
+                        color = if (isPoseGuideEnabled) Black else White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
 
@@ -521,6 +578,9 @@ fun CameraScreen() {
                             .clickable {
                                 if (currentMode != mode) {
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    if (mode == CameraMode.PORTRAIT) {
+                                        isPoseGuideEnabled = true
+                                    }
                                     previewView?.let { pv ->
                                         cameraManager.switchMode(pv, mode) {
                                             currentMode = mode
