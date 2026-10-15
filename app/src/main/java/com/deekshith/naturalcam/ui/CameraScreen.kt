@@ -81,6 +81,8 @@ fun CameraScreen() {
     var recordingDurationSec by remember { mutableIntStateOf(0) }
 
     // Capture & Gallery
+    var selectedFilter by remember { mutableStateOf(com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) }
+    var showFilterSelector by remember { mutableStateOf(false) }
     var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var focusPosition by remember { mutableStateOf<Offset?>(null) }
@@ -245,11 +247,15 @@ fun CameraScreen() {
                 )
             }
 
-            // Natural Tone / Mode Badge
+            // Natural Tone / DSLR Filter Badge (Tap to toggle DSLR Forest Filters)
             Surface(
                 color = TranslucentBlack,
                 shape = RoundedCornerShape(16.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, OnePlusRed.copy(alpha = 0.6f))
+                border = androidx.compose.foundation.BorderStroke(1.dp, OnePlusRed.copy(alpha = 0.6f)),
+                modifier = Modifier.clickable {
+                    showFilterSelector = !showFilterSelector
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -258,16 +264,20 @@ fun CameraScreen() {
                     Box(
                         modifier = Modifier
                             .size(7.dp)
-                            .background(OnePlusRed, CircleShape)
+                            .background(if (selectedFilter != com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) AmberAccent else OnePlusRed, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = when (currentMode) {
-                            CameraMode.PRO -> "PRO RAW"
-                            CameraMode.PORTRAIT -> "PORTRAIT"
-                            CameraMode.NIGHT -> "NIGHTSCAPE"
-                            CameraMode.VIDEO -> "4K UHD"
-                            else -> "NATURAL TONE"
+                        text = if (selectedFilter != com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) {
+                            selectedFilter.displayName.uppercase()
+                        } else {
+                            when (currentMode) {
+                                CameraMode.PRO -> "PRO RAW"
+                                CameraMode.PORTRAIT -> "PORTRAIT"
+                                CameraMode.NIGHT -> "NIGHTSCAPE"
+                                CameraMode.VIDEO -> "4K UHD"
+                                else -> "NATURAL TONE"
+                            }
                         },
                         color = White,
                         fontSize = 10.sp,
@@ -312,6 +322,50 @@ fun CameraScreen() {
                     contentDescription = "Grid",
                     tint = if (showGrid) AmberAccent else White
                 )
+            }
+        }
+
+        // 6b. DSLR Forest Photography Filters Pill Strip (Slides in when tapped)
+        AnimatedVisibility(
+            visible = showFilterSelector,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 56.dp)
+        ) {
+            Surface(
+                color = TranslucentBlack,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                LazyRow(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items(com.deekshith.naturalcam.filter.ForestDslrFilter.values()) { filter ->
+                        val isSelected = selectedFilter == filter
+                        Surface(
+                            color = if (isSelected) AmberAccent else Color.Transparent,
+                            shape = RoundedCornerShape(14.dp),
+                            border = if (!isSelected) androidx.compose.foundation.BorderStroke(1.dp, White.copy(alpha = 0.25f)) else null,
+                            modifier = Modifier.clickable {
+                                selectedFilter = filter
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
+                        ) {
+                            Text(
+                                text = filter.displayName,
+                                color = if (isSelected) Black else White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -585,13 +639,13 @@ fun CameraScreen() {
                                             delay(1000)
                                             countdownRemaining--
                                         }
-                                        performPhotoCapture(cameraManager) { uri ->
+                                        performPhotoCapture(cameraManager, selectedFilter) { uri ->
                                             lastCapturedUri = uri
                                         }
                                     }
                                 } else {
                                     isCapturing = true
-                                    performPhotoCapture(cameraManager) { uri ->
+                                    performPhotoCapture(cameraManager, selectedFilter) { uri ->
                                         isCapturing = false
                                         lastCapturedUri = uri
                                     }
@@ -626,9 +680,11 @@ fun CameraScreen() {
 
 private fun performPhotoCapture(
     cameraManager: NaturalCameraManager,
+    filter: com.deekshith.naturalcam.filter.ForestDslrFilter,
     onSaved: (Uri) -> Unit
 ) {
     cameraManager.takePhoto(
+        filter = filter,
         onPhotoSaved = { uri -> onSaved(uri) },
         onError = { /* error handled */ }
     )

@@ -311,12 +311,74 @@ class NaturalCameraManager(
     }
 
     fun takePhoto(
+        filter: com.deekshith.naturalcam.filter.ForestDslrFilter = com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL,
         onPhotoSaved: (Uri) -> Unit,
-        onError: (ImageCaptureException) -> Unit
+        onError: (Exception) -> Unit
     ) {
         val imageCapture = this.imageCapture ?: return
 
-        val name = "IMG_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
+        if (filter == com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) {
+            val name = "IMG_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/NaturalCam")
+                }
+            }
+
+            val outputOptions = ImageCapture.OutputFileOptions.Builder(
+                context.contentResolver,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            ).build()
+
+            imageCapture.takePicture(
+                outputOptions,
+                cameraExecutor,
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        val savedUri = output.savedUri ?: Uri.EMPTY
+                        Log.d(TAG, "Photo saved: $savedUri")
+                        onPhotoSaved(savedUri)
+                    }
+
+                    override fun onError(exc: ImageCaptureException) {
+                        Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                        onError(exc)
+                    }
+                }
+            )
+        } else {
+            // Apply DSLR Forest Filter Matrix
+            imageCapture.takePicture(
+                cameraExecutor,
+                object : ImageCapture.OnImageCapturedCallback() {
+                    override fun onCaptureSuccess(image: ImageProxy) {
+                        try {
+                            val bitmap = image.toBitmap()
+                            val filteredBitmap = filter.applyToBitmap(bitmap)
+                            val savedUri = saveBitmapToGallery(filteredBitmap)
+                            onPhotoSaved(savedUri)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error applying filter: ${e.message}", e)
+                            onError(e)
+                        } finally {
+                            image.close()
+                        }
+                    }
+
+                    override fun onError(exc: ImageCaptureException) {
+                        Log.e(TAG, "Capture failed: ${exc.message}", exc)
+                        onError(exc)
+                    }
+                }
+            )
+        }
+    }
+
+    private fun saveBitmapToGallery(bitmap: android.graphics.Bitmap): Uri {
+        val name = "IMG_DSLR_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -325,28 +387,13 @@ class NaturalCameraManager(
             }
         }
 
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(
-            context.contentResolver,
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            contentValues
-        ).build()
+        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            ?: throw IllegalStateException("Failed to create MediaStore entry")
 
-        imageCapture.takePicture(
-            outputOptions,
-            cameraExecutor,
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    val savedUri = output.savedUri ?: Uri.EMPTY
-                    Log.d(TAG, "Photo saved: $savedUri")
-                    onPhotoSaved(savedUri)
-                }
-
-                override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-                    onError(exc)
-                }
-            }
-        )
+        context.contentResolver.openOutputStream(uri)?.use { stream ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, stream)
+        }
+        return uri
     }
 
     @SuppressLint("MissingPermission")

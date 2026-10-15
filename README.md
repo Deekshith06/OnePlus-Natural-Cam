@@ -5,13 +5,26 @@
 [![Privacy](https://img.shields.io/badge/Privacy-0%20Internet%20Permissions-brightgreen.svg)](#privacy--bloat-free)
 [![Device](https://img.shields.io/badge/Optimized%20for-OnePlus%2011%20%2F%20OxygenOS-red.svg)](#the-problem)
 
-A lightweight, **100% Free & Open-Source (FOSS)** camera app built for OnePlus devices running OxygenOS / ColorOS. Specifically engineered to **eliminate the aggressive AI skin-whitening, highlight blowout, and milky pale wash** while providing all top flagship camera features.
+A lightweight, **100% Free & Open-Source (FOSS)** camera app built for OnePlus devices running OxygenOS / ColorOS. Specifically engineered to **eliminate aggressive AI skin-whitening and highlight blowout**, while packing professional **flagship camera features** and **dedicated DSLR Forest & Nature Photography Filters**.
 
 ---
 
-## 🌟 Top Flagship Features
+## 🌲 Specialized DSLR Forest & Woodland Photography Filters
 
-* **🚫 Zero AI Skin-Whitening:** Forces `CaptureRequest.CONTROL_SCENE_MODE = DISABLED` and strips proprietary vendor beauty masks.
+Designed specifically for nature, forest, and landscape shooting without artificial mobile over-saturation or neon tones:
+
+1. **🌿 Natural (Default):** 100% untouched hardware sensor calibration directly from the Sony IMX890.
+2. **🌲 Emerald Pine:** Deepens evergreen foliage, enriches tree moss, and suppresses neon yellow hues so leaves look rich and organic.
+3. **🌫️ Moody Woods:** Inspired by Pacific Northwest & Nordic woodland aesthetics. Softens highlights, applies cool teal shadow undertones, and brings out misty, atmospheric forest scenes.
+4. **🍂 Golden Canopy:** Captures warm autumn sunlight filtering through tree leaves with gentle amber highlight roll-off.
+5. **📷 Velvia Landscape:** Classic Fuji landscape slide-film profile with high dynamic contrast, deep bark browns, and rich earthy textures.
+6. **🖤 Ansel Woods B&W:** Ansel Adams-inspired fine-art monochrome with red optical spectral filtration to make foliage stand out crisply against dark bark and dramatic skies.
+
+---
+
+## 🌟 Flagship Camera Features
+
+* **🚫 Zero AI Whitening:** Forces `CaptureRequest.CONTROL_SCENE_MODE = DISABLED` and strips vendor beauty masks.
 * **🎥 4K UHD Video Recording:** Record crisp 4K / 1080p video with high-bitrate audio and zero AI smoothing.
 * **🎛️ PRO / Manual Mode:** Manual controls for ISO (100–3200), Shutter Speed, Focus, and Exposure Compensation.
 * **🌙 Nightscape Mode:** Long-exposure night photography with natural shadow retention.
