@@ -166,6 +166,7 @@ data class CoachUiState(
     val activeSuggestion: CoachSuggestion? = null,
     val targetSkeleton: TargetSkeleton? = null,
     val poseMatched: Boolean = false,
+    val hasHumanSubject: Boolean = false,
     val isSuppressed: Boolean = false,
     // Live Debug Telemetry
     val fps: Float = 0f,

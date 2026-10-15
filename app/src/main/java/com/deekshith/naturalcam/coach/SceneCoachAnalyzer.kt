@@ -163,6 +163,7 @@ class SceneCoachAnalyzer(
                 activeSuggestion = activeSuggestion,
                 targetSkeleton = targetSkeleton,
                 poseMatched = poseMatched,
+                hasHumanSubject = poseState != null,
                 isSuppressed = activeSuggestion?.let { closedLoopTracker.isSuppressed(it.id) } ?: false,
                 fps = currentFps,
                 inferenceMs = lastInferenceMs,
