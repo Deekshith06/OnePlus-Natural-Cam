@@ -14,7 +14,9 @@ enum class ForestDslrFilter(
     val displayName: String,
     val description: String,
     val category: FilterCategory,
-    val matrix: FloatArray
+    val matrix: FloatArray,
+    val swatchStart: Long,
+    val swatchEnd: Long
 ) {
     NATURAL(
         id = "natural",
@@ -26,7 +28,9 @@ enum class ForestDslrFilter(
             0f, 1f, 0f, 0f, 0f,
             0f, 0f, 1f, 0f, 0f,
             0f, 0f, 0f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF757575,
+        swatchEnd = 0xFFE0E0E0
     ),
 
     // --- Forest & Nature Suite ---
@@ -40,7 +44,9 @@ enum class ForestDslrFilter(
             0.00f, 1.18f, 0.02f, 0f, 8f,
             0.02f, 0.05f, 0.95f, 0f, -2f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF1B5E20,
+        swatchEnd = 0xFF4CAF50
     ),
 
     MOODY_WOODS(
@@ -53,7 +59,9 @@ enum class ForestDslrFilter(
             0.05f, 0.90f, 0.05f, 0f, -4f,
             0.00f, 0.12f, 1.05f, 0f, 12f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF1A3636,
+        swatchEnd = 0xFF406882
     ),
 
     GOLDEN_CANOPY(
@@ -66,7 +74,9 @@ enum class ForestDslrFilter(
             0.05f, 1.08f, 0.00f, 0f, 10f,
             0.00f, 0.00f, 0.85f, 0f, -15f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFFBF360C,
+        swatchEnd = 0xFFFFB300
     ),
 
     FUJI_VELVIA(
@@ -79,7 +89,9 @@ enum class ForestDslrFilter(
             -0.05f, 1.25f, -0.05f, 0f, -10f,
             -0.05f, -0.05f, 1.15f, 0f, -8f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFFB71C1C,
+        swatchEnd = 0xFF2E7D32
     ),
 
     MOSS_STREAM(
@@ -92,7 +104,9 @@ enum class ForestDslrFilter(
             0.02f, 1.12f, 0.08f, 0f, 6f,
             0.00f, 0.05f, 1.15f, 0f, 10f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF004D40,
+        swatchEnd = 0xFF00ACC1
     ),
 
     // --- Low Light & Nightscape Suite ---
@@ -106,7 +120,9 @@ enum class ForestDslrFilter(
             0.02f, 0.92f, 0.10f, 0f, -8f,
             0.00f, 0.08f, 1.25f, 0f, 16f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF0D47A1,
+        swatchEnd = 0xFF1E88E5
     ),
 
     CYBER_NIGHT(
@@ -119,7 +135,9 @@ enum class ForestDslrFilter(
             -0.02f, 0.95f, 0.10f, 0f, -6f,
             0.05f, 0.10f, 1.20f, 0f, 18f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF4A148C,
+        swatchEnd = 0xFF00E5FF
     ),
 
     CAMPFIRE_GLOW(
@@ -132,7 +150,9 @@ enum class ForestDslrFilter(
             0.02f, 1.05f, 0.00f, 0f, 8f,
             0.00f, 0.00f, 0.80f, 0f, -20f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFFE65100,
+        swatchEnd = 0xFFFF8F00
     ),
 
     // --- Monochrome Suite ---
@@ -146,7 +166,9 @@ enum class ForestDslrFilter(
             0.60f, 0.35f, 0.05f, 0f, -20f,
             0.60f, 0.35f, 0.05f, 0f, -20f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF000000,
+        swatchEnd = 0xFFFFFFFF
     ),
 
     ANSEL_MONO(
@@ -159,7 +181,9 @@ enum class ForestDslrFilter(
             0.50f, 0.40f, 0.10f, 0f, -15f,
             0.50f, 0.40f, 0.10f, 0f, -15f,
             0.00f, 0.00f, 0.00f, 1f, 0f
-        )
+        ),
+        swatchStart = 0xFF212121,
+        swatchEnd = 0xFF9E9E9E
     );
 
     fun applyToBitmap(source: Bitmap): Bitmap {

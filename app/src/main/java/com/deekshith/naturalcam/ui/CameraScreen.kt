@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -138,6 +139,21 @@ fun CameraScreen() {
         }
     }
 
+    // Direct Hardware RenderEffect on PreviewView for 100% reliable 60fps live filter preview
+    LaunchedEffect(selectedFilter, previewView) {
+        val pv = previewView ?: return@LaunchedEffect
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (selectedFilter != ForestDslrFilter.NATURAL) {
+                val effect = android.graphics.RenderEffect.createColorFilterEffect(
+                    android.graphics.ColorMatrixColorFilter(selectedFilter.matrix)
+                )
+                pv.setRenderEffect(effect)
+            } else {
+                pv.setRenderEffect(null)
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -149,10 +165,12 @@ fun CameraScreen() {
                 .fillMaxSize()
                 .graphicsLayer {
                     // Real-Time Viewfinder Filter Preview using hardware RenderEffect (Android 12+)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && selectedFilter != ForestDslrFilter.NATURAL) {
-                        renderEffect = android.graphics.RenderEffect.createColorFilterEffect(
+                    renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && selectedFilter != ForestDslrFilter.NATURAL) {
+                        android.graphics.RenderEffect.createColorFilterEffect(
                             android.graphics.ColorMatrixColorFilter(selectedFilter.matrix)
                         ).asComposeRenderEffect()
+                    } else {
+                        null
                     }
                 }
         ) {
@@ -436,74 +454,55 @@ fun CameraScreen() {
             }
         }
 
-        // 8. DSLR Forest & Low-Light Filter Suite Drawer
+        // 8. Active Filter Indicator Chip on Viewfinder (Tap to Reset to Natural)
         AnimatedVisibility(
-            visible = showFilterSelector,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
+            visible = selectedFilter != ForestDslrFilter.NATURAL,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 56.dp)
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 220.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .background(TranslucentBlack, RoundedCornerShape(20.dp))
-                    .padding(10.dp)
-            ) {
-                // Category Tabs (All / Forest & Nature / Low-Light & Night / Black & White)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) {
-                    items(FilterCategory.values()) { category ->
-                        val isCatSelected = selectedCategory == category
-                        Text(
-                            text = category.label,
-                            color = if (isCatSelected) AmberAccent else LightGray,
-                            fontSize = 11.sp,
-                            fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier
-                                .clickable {
-                                    selectedCategory = category
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+            Surface(
+                color = TranslucentBlack,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, AmberAccent),
+                modifier = Modifier.clickable {
+                    selectedFilter = ForestDslrFilter.NATURAL
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                 }
-
-                // Filter Pills
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val filteredList = ForestDslrFilter.values().filter {
-                        selectedCategory == FilterCategory.ALL || it.category == selectedCategory || it == ForestDslrFilter.NATURAL
-                    }
-
-                    items(filteredList) { filter ->
-                        val isSelected = selectedFilter == filter
-                        Surface(
-                            color = if (isSelected) AmberAccent else Color.Transparent,
-                            shape = RoundedCornerShape(14.dp),
-                            border = if (!isSelected) BorderStroke(1.dp, White.copy(alpha = 0.25f)) else null,
-                            modifier = Modifier.clickable {
-                                selectedFilter = filter
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            }
-                        ) {
-                            Text(
-                                text = filter.displayName,
-                                color = if (isSelected) Black else White,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        Color(selectedFilter.swatchStart),
+                                        Color(selectedFilter.swatchEnd)
+                                    )
+                                )
                             )
-                        }
-                    }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = selectedFilter.displayName,
+                        color = AmberAccent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Reset filter",
+                        tint = LightGray,
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
             }
         }
@@ -644,44 +643,211 @@ fun CameraScreen() {
                 .padding(bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Multi-Lens Quick Selector (0.6x Ultra-Wide, 1.0x Main 50MP, 2.0x Telephoto, 5.0x Zoom)
+            // Quick Control Strip: Multi-Lens Zoom + Filter Suite Button + Master AI Toggle
             Row(
-                modifier = Modifier
-                    .background(TranslucentBlack, RoundedCornerShape(20.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
             ) {
-                listOf(0.6f, 1.0f, 2.0f, 5.0f).forEach { zoom ->
-                    val isSelected = abs(selectedZoom - zoom) < 0.15f
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (isSelected) OnePlusRed else Color.Transparent)
-                            .clickable {
-                                selectedZoom = zoom
-                                cameraManager.setZoom(zoom)
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = when (zoom) {
-                                0.6f -> "0.6x"
-                                1.0f -> "1x"
-                                2.0f -> "2x"
-                                else -> "5x"
-                            },
-                            color = White,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                // Multi-Lens Quick Selector (0.6x, 1.0x, 2.0x, 5.0x)
+                Row(
+                    modifier = Modifier
+                        .background(TranslucentBlack, RoundedCornerShape(20.dp))
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf(0.6f, 1.0f, 2.0f, 5.0f).forEach { zoom ->
+                        val isSelected = abs(selectedZoom - zoom) < 0.15f
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isSelected) OnePlusRed else Color.Transparent)
+                                .clickable {
+                                    selectedZoom = zoom
+                                    cameraManager.setZoom(zoom)
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = when (zoom) {
+                                    0.6f -> "0.6x"
+                                    1.0f -> "1x"
+                                    2.0f -> "2x"
+                                    else -> "5x"
+                                },
+                                color = White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // DSLR Filter Suite Toggle Button (with active amber glow)
+                IconButton(
+                    onClick = {
+                        showFilterSelector = !showFilterSelector
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(
+                            if (showFilterSelector || selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else TranslucentBlack,
+                            CircleShape
                         )
+                        .border(
+                            1.dp,
+                            if (showFilterSelector || selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else White.copy(alpha = 0.4f),
+                            CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Filters",
+                        tint = if (showFilterSelector || selectedFilter != ForestDslrFilter.NATURAL) Black else White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Master AI Director Toggle Button (Huawei Master AI style)
+                IconButton(
+                    onClick = {
+                        isAiDirectorEnabled = !isAiDirectorEnabled
+                        if (!isAiDirectorEnabled) aiSuggestion = null
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(
+                            if (isAiDirectorEnabled) Color(0xFF1E88E5).copy(alpha = 0.8f) else TranslucentBlack,
+                            CircleShape
+                        )
+                        .border(
+                            1.dp,
+                            if (isAiDirectorEnabled) Color(0xFF64B5F6) else White.copy(alpha = 0.4f),
+                            CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Psychology,
+                        contentDescription = "Master AI",
+                        tint = White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Bottom Filter Drawer with Visual Swatches (Expands cleanly right above Modes)
+            AnimatedVisibility(
+                visible = showFilterSelector,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .background(TranslucentBlack, RoundedCornerShape(20.dp))
+                        .border(1.dp, AmberAccent.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                        .padding(vertical = 10.dp, horizontal = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Category Tabs (All | Forest & Nature | Low-Light & Night | Black & White)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    ) {
+                        items(FilterCategory.values()) { category ->
+                            val isCatSelected = selectedCategory == category
+                            Text(
+                                text = category.label,
+                                color = if (isCatSelected) AmberAccent else LightGray,
+                                fontSize = 11.sp,
+                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier
+                                    .clickable {
+                                        selectedCategory = category
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                    .background(
+                                        if (isCatSelected) AmberAccent.copy(alpha = 0.2f) else Color.Transparent,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    // Visual Filter Swatches Carousel
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val filteredList = ForestDslrFilter.values().filter {
+                            selectedCategory == FilterCategory.ALL || it.category == selectedCategory || it == ForestDslrFilter.NATURAL
+                        }
+
+                        items(filteredList) { filter ->
+                            val isSelected = selectedFilter == filter
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.clickable {
+                                    selectedFilter = filter
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.dp,
+                                            color = if (isSelected) AmberAccent else White.copy(alpha = 0.4f),
+                                            shape = CircleShape
+                                        )
+                                        .padding(if (isSelected) 3.dp else 1.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    Color(filter.swatchStart),
+                                                    Color(filter.swatchEnd)
+                                                )
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Active",
+                                            tint = White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                Text(
+                                    text = filter.displayName,
+                                    color = if (isSelected) AmberAccent else White,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Camera Modes Carousel (Swipe/Tap between Modes)
             Row(
