@@ -26,6 +26,9 @@ object CoachThresholds {
     const val PORTRAIT_SUBJECT_TOO_CLOSE_RATIO = 0.85f // Subject occupying > 85% of vertical frame
     const val PORTRAIT_TARGET_HEIGHT_MIN = 0.55f     // Ideal subject height 55%
     const val PORTRAIT_TARGET_HEIGHT_MAX = 0.75f     // Ideal subject height 75%
+    const val FRAMING_CENTER_TOLERANCE = 0.08f       // +/- 8% from screen center 0.50f is centered
+    const val FRAMING_MIN_HEIGHT = 0.48f             // Below 48% height triggers Step Closer
+    const val FRAMING_MAX_HEIGHT = 0.82f             // Above 82% height triggers Step Back
     
     // Inertial & Sharpness
     const val SHAKE_ANGULAR_SPEED_THRESHOLD = 0.45f  // rad/s angular velocity
@@ -165,6 +168,10 @@ sealed class CoachAction {
 data class CoachUiState(
     val activeSuggestion: CoachSuggestion? = null,
     val targetSkeleton: TargetSkeleton? = null,
+    val framingGuide: PortraitFramingGuide? = null,
+    val isOnline: Boolean = false,
+    val environmentName: String = "",
+    val environmentAdvice: String = "",
     val poseMatched: Boolean = false,
     val hasHumanSubject: Boolean = false,
     val isSuppressed: Boolean = false,
@@ -182,3 +189,33 @@ data class TargetSkeleton(
     val alignmentHint: String,
     val matchScore: Float
 )
+
+/**
+ * Modern Portrait Framing Border & Centering Guide (Huawei Master AI style).
+ * Replaces stick-figure skeleton with an elegant Golden Ratio Frame & centering directions.
+ */
+data class PortraitFramingGuide(
+    val targetBox: CoachRectF,
+    val subjectBox: CoachRectF,
+    val centerOffset: Float, // subject.centerX() - 0.50f
+    val heightRatio: Float,
+    val horizontalAlignment: HorizontalAlignmentState,
+    val distanceState: DistanceFramingState,
+    val isCentered: Boolean,
+    val isFramed: Boolean,
+    val isPerfect: Boolean,
+    val primaryDirection: String,
+    val postureHint: String? = null
+)
+
+enum class HorizontalAlignmentState {
+    CENTERED,
+    MOVE_RIGHT, // Subject is on left -> Shift right to center
+    MOVE_LEFT   // Subject is on right -> Shift left to center
+}
+
+enum class DistanceFramingState {
+    OPTIMAL,
+    STEP_CLOSER,
+    STEP_BACK
+}

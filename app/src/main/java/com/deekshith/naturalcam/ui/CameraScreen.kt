@@ -25,8 +25,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -180,11 +183,12 @@ fun CameraScreen() {
             GridOverlay(modifier = Modifier.fillMaxSize())
         }
 
-        // 3. Opt-In Target Pose Skeleton Overlay
-        if (isPoseGuideEnabled && coachUiState.targetSkeleton != null) {
-            TargetSkeletonOverlay(
-                skeleton = coachUiState.targetSkeleton!!,
-                poseMatched = coachUiState.poseMatched,
+        // 3. Opt-In Portrait Framing Border & Centering Guide Overlay (Huawei Master AI style)
+        if (isPoseGuideEnabled) {
+            PortraitFramingBorderOverlay(
+                framingGuide = coachUiState.framingGuide,
+                isOnline = coachUiState.isOnline,
+                environmentName = coachUiState.environmentName,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -429,7 +433,9 @@ fun CameraScreen() {
                     onLongPress = {
                         showDebugOverlay = true
                         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    }
+                    },
+                    isOnline = coachUiState.isOnline,
+                    environmentName = coachUiState.environmentName
                 )
             }
         }
@@ -760,6 +766,8 @@ fun SceneCoachPill(
     onApply: () -> Unit,
     onDismiss: () -> Unit,
     onLongPress: () -> Unit,
+    isOnline: Boolean = false,
+    environmentName: String = "",
     modifier: Modifier = Modifier
 ) {
     val icon = when (suggestion.type) {
@@ -786,8 +794,20 @@ fun SceneCoachPill(
             modifier = Modifier.padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = icon, fontSize = 12.sp)
-            Spacer(modifier = Modifier.width(6.dp))
+            val netBadge = if (isOnline) "🌐" else "⚡"
+            Text(text = "$netBadge $icon", fontSize = 11.sp)
+            Spacer(modifier = Modifier.width(5.dp))
+            if (environmentName.isNotBlank()) {
+                Text(
+                    text = environmentName,
+                    color = AmberAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(text = "•", color = LightGray, fontSize = 10.sp)
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             Text(
                 text = suggestion.shortLabel,
                 color = White,
@@ -824,6 +844,210 @@ fun SceneCoachPill(
                     tint = LightGray,
                     modifier = Modifier.size(11.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Modern Portrait Framing Border & Centering Guide (Huawei Master AI style).
+ * Replaces stick-figure skeleton with an elegant Golden Ratio Frame & centering directions.
+ */
+@Composable
+fun PortraitFramingBorderOverlay(
+    framingGuide: PortraitFramingGuide?,
+    isOnline: Boolean,
+    environmentName: String,
+    modifier: Modifier = Modifier
+) {
+    val isPerfect = framingGuide?.isPerfect == true
+    val isCentered = framingGuide?.isCentered == true
+
+    val bracketColor = if (isPerfect) Color(0xFF00E676) else if (isCentered) AmberAccent else Color(0xEEFFFFFF)
+    val cornerStrokePx = 3.dp.toPx()
+    val thinStrokePx = 1.dp.toPx()
+
+    Box(modifier = modifier) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            // 1. Golden Ratio Target Frame Bounds (Center of viewfinder)
+            val tLeft = (framingGuide?.targetBox?.left ?: 0.18f) * w
+            val tTop = (framingGuide?.targetBox?.top ?: 0.12f) * h
+            val tRight = (framingGuide?.targetBox?.right ?: 0.82f) * w
+            val tBottom = (framingGuide?.targetBox?.bottom ?: 0.82f) * h
+            val tW = tRight - tLeft
+            val tH = tBottom - tTop
+            val tCenterX = (tLeft + tRight) / 2f
+
+            val armLength = 26.dp.toPx()
+
+            // Outer golden ratio framing boundary
+            drawRect(
+                color = if (isPerfect) Color(0x4400E676) else Color(0x22FFFFFF),
+                topLeft = Offset(tLeft, tTop),
+                size = Size(tW, tH),
+                style = Stroke(width = thinStrokePx)
+            )
+
+            // 2. Four L-Shaped Corner Brackets (Huawei Master AI style)
+            // Top-Left
+            drawLine(bracketColor, Offset(tLeft, tTop + armLength), Offset(tLeft, tTop), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+            drawLine(bracketColor, Offset(tLeft, tTop), Offset(tLeft + armLength, tTop), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+
+            // Top-Right
+            drawLine(bracketColor, Offset(tRight - armLength, tTop), Offset(tRight, tTop), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+            drawLine(bracketColor, Offset(tRight, tTop), Offset(tRight, tTop + armLength), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+
+            // Bottom-Left
+            drawLine(bracketColor, Offset(tLeft, tBottom - armLength), Offset(tLeft, tBottom), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+            drawLine(bracketColor, Offset(tLeft, tBottom), Offset(tLeft + armLength, tBottom), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+
+            // Bottom-Right
+            drawLine(bracketColor, Offset(tRight - armLength, tBottom), Offset(tRight, tBottom), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+            drawLine(bracketColor, Offset(tRight, tBottom), Offset(tRight, tBottom - armLength), strokeWidth = cornerStrokePx, cap = StrokeCap.Round)
+
+            // 3. Center Axis Alignment Ticks (Marks exact middle)
+            val tickLen = 14.dp.toPx()
+            drawLine(
+                color = if (isCentered) Color(0xFF00E676) else AmberAccent.copy(alpha = 0.85f),
+                start = Offset(tCenterX, tTop),
+                end = Offset(tCenterX, tTop + tickLen),
+                strokeWidth = cornerStrokePx,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = if (isCentered) Color(0xFF00E676) else AmberAccent.copy(alpha = 0.85f),
+                start = Offset(tCenterX, tBottom - tickLen),
+                end = Offset(tCenterX, tBottom),
+                strokeWidth = cornerStrokePx,
+                cap = StrokeCap.Round
+            )
+
+            // Fine vertical center alignment axis
+            drawLine(
+                color = if (isCentered) Color(0x5500E676) else Color(0x22FFFFFF),
+                start = Offset(tCenterX, tTop + tickLen),
+                end = Offset(tCenterX, tBottom - tickLen),
+                strokeWidth = thinStrokePx
+            )
+
+            // 4. Head Placement Zone (Golden Portrait Eye/Head Oval in top 20% of target frame)
+            val headCenterY = tTop + tH * 0.18f
+            val headRadiusX = tW * 0.18f
+            val headRadiusY = tH * 0.12f
+            drawOval(
+                color = if (isPerfect) Color(0x6600E676) else Color(0x33FFFFFF),
+                topLeft = Offset(tCenterX - headRadiusX, headCenterY - headRadiusY),
+                size = Size(headRadiusX * 2, headRadiusY * 2),
+                style = Stroke(width = thinStrokePx)
+            )
+
+            // 5. Subject Tracking & Centering Direction Arrows
+            if (framingGuide != null) {
+                val sBox = framingGuide.subjectBox
+                val sLeft = sBox.left * w
+                val sTop = sBox.top * h
+                val sRight = sBox.right * w
+                val sBottom = sBox.bottom * h
+                val sW = sRight - sLeft
+                val sH = sBottom - sTop
+                val sCenterX = sBox.centerX() * w
+                val sCenterY = sBox.centerY() * h
+
+                // Soft subject bounding box
+                drawRoundRect(
+                    color = if (isPerfect) Color(0x9900E676) else Color(0x66FFD54F),
+                    topLeft = Offset(sLeft, sTop),
+                    size = Size(sW, sH),
+                    cornerRadius = CornerRadius(10.dp.toPx()),
+                    style = Stroke(width = 1.8f)
+                )
+
+                // Directional Arrows when off-center
+                if (!isCentered) {
+                    val arrowY = sCenterY.coerceIn(tTop + 40.dp.toPx(), tBottom - 40.dp.toPx())
+                    if (framingGuide.horizontalAlignment == HorizontalAlignmentState.MOVE_RIGHT) {
+                        // Guide line from subject center to target center
+                        drawLine(
+                            color = AmberAccent,
+                            start = Offset(sCenterX, arrowY),
+                            end = Offset(tCenterX, arrowY),
+                            strokeWidth = 2.0f
+                        )
+                        // Arrow head pointing right towards middle
+                        drawLine(AmberAccent, Offset(tCenterX - 14.dp.toPx(), arrowY - 8.dp.toPx()), Offset(tCenterX, arrowY), strokeWidth = 2.5f, cap = StrokeCap.Round)
+                        drawLine(AmberAccent, Offset(tCenterX - 14.dp.toPx(), arrowY + 8.dp.toPx()), Offset(tCenterX, arrowY), strokeWidth = 2.5f, cap = StrokeCap.Round)
+                    } else if (framingGuide.horizontalAlignment == HorizontalAlignmentState.MOVE_LEFT) {
+                        // Guide line from subject center to target center
+                        drawLine(
+                            color = AmberAccent,
+                            start = Offset(sCenterX, arrowY),
+                            end = Offset(tCenterX, arrowY),
+                            strokeWidth = 2.0f
+                        )
+                        // Arrow head pointing left towards middle
+                        drawLine(AmberAccent, Offset(tCenterX + 14.dp.toPx(), arrowY - 8.dp.toPx()), Offset(tCenterX, arrowY), strokeWidth = 2.5f, cap = StrokeCap.Round)
+                        drawLine(AmberAccent, Offset(tCenterX + 14.dp.toPx(), arrowY + 8.dp.toPx()), Offset(tCenterX, arrowY), strokeWidth = 2.5f, cap = StrokeCap.Round)
+                    }
+                }
+            }
+        }
+
+        // 6. Centering Guidance Pill (Above bottom controls)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 220.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val guidanceText = framingGuide?.primaryDirection ?: "Position person in center frame"
+
+            Surface(
+                color = if (isPerfect) Color(0xEE00E676) else Color(0xDD121214),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isPerfect) Color(0xFF00E676) else if (isCentered) AmberAccent else Color(0x55FFFFFF)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = guidanceText,
+                        color = if (isPerfect) Black else White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (environmentName.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "• $environmentName",
+                            color = if (isPerfect) Color(0xCC000000) else LightGray,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            // Posture Micro-Hint (if any)
+            framingGuide?.postureHint?.let { hint ->
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    color = Color(0xBB000000),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = "Posture: $hint",
+                        color = AmberAccent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                    )
+                }
             }
         }
     }
@@ -941,6 +1165,24 @@ fun CoachDebugOverlay(
                 fontFamily = FontFamily.Monospace
             )
 
+            // Network & Environmental Intelligence
+            val netStatus = if (uiState.isOnline) "🌐 Online (Cloud Enhanced)" else "⚡ Offline (On-Device Neural)"
+            Text(
+                text = "📡 Network: $netStatus",
+                color = if (uiState.isOnline) Color(0xFF00E676) else AmberAccent,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (uiState.environmentName.isNotBlank()) {
+                Text(
+                    text = "🌍 Environment: ${uiState.environmentName} (${uiState.environmentAdvice})",
+                    color = White.copy(alpha = 0.9f),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
             Spacer(modifier = Modifier.height(4.dp))
 
             // Places365 Top-3 Categories
@@ -987,6 +1229,14 @@ fun CoachDebugOverlay(
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace
             )
+            uiState.framingGuide?.let { guide ->
+                Text(
+                    text = "   • Center Offset: ${String.format("%+.2f", guide.centerOffset)} | Centered: ${guide.isCentered} | Perfect: ${guide.isPerfect}",
+                    color = if (guide.isPerfect) Color(0xFF00E676) else AmberAccent,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
 
             uiState.activeSuggestion?.let {
                 Spacer(modifier = Modifier.height(4.dp))

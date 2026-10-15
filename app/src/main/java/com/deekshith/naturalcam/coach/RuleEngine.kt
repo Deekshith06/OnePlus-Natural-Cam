@@ -14,6 +14,8 @@ class RuleEngine(private val closedLoopTracker: ClosedLoopTracker) {
     private var currentActiveSuggestion: CoachSuggestion? = null
     private var lastSuggestionChangeTimestamp = 0L
     var isPoseGuideEnabled: Boolean = false
+    var currentFramingGuide: PortraitFramingGuide? = null
+        private set
 
     /**
      * Evaluates all candidate suggestions from the measured frame state,
@@ -223,6 +225,8 @@ class RuleEngine(private val closedLoopTracker: ClosedLoopTracker) {
                 }
                 candidates.add(suggestion)
             }
+        } else {
+            currentFramingGuide = null
         }
 
         // Sort candidates by priority (1 is highest)
@@ -358,6 +362,61 @@ class RuleEngine(private val closedLoopTracker: ClosedLoopTracker) {
             targetKeypoints = targetKps,
             alignmentHint = hint,
             matchScore = matchScore
+        )
+
+        // Compute Portrait Framing Border & Centering Guide
+        val cx = box.centerX()
+        val centerOffset = cx - 0.50f
+        val heightRatio = box.height()
+        val isCentered = abs(centerOffset) <= CoachThresholds.FRAMING_CENTER_TOLERANCE
+
+        val horizontalAlignment = when {
+            centerOffset < -CoachThresholds.FRAMING_CENTER_TOLERANCE -> HorizontalAlignmentState.MOVE_RIGHT
+            centerOffset > CoachThresholds.FRAMING_CENTER_TOLERANCE -> HorizontalAlignmentState.MOVE_LEFT
+            else -> HorizontalAlignmentState.CENTERED
+        }
+
+        val distanceState = when {
+            heightRatio < CoachThresholds.FRAMING_MIN_HEIGHT -> DistanceFramingState.STEP_CLOSER
+            heightRatio > CoachThresholds.FRAMING_MAX_HEIGHT -> DistanceFramingState.STEP_BACK
+            else -> DistanceFramingState.OPTIMAL
+        }
+
+        val isFramed = distanceState == DistanceFramingState.OPTIMAL
+        val isPerfect = isCentered && isFramed
+
+        val primaryDirection = when {
+            isPerfect -> "✓ Perfect Center & Framing"
+            !isCentered && horizontalAlignment == HorizontalAlignmentState.MOVE_RIGHT -> "⇥ Move Subject Right"
+            !isCentered && horizontalAlignment == HorizontalAlignmentState.MOVE_LEFT -> "⇤ Move Subject Left"
+            distanceState == DistanceFramingState.STEP_CLOSER -> "⤢ Step Closer (Fill Frame)"
+            distanceState == DistanceFramingState.STEP_BACK -> "⤡ Step Back"
+            else -> "Align Subject in Middle"
+        }
+
+        val postureHint = when {
+            abs(pose.torsoLeanAngleDeg) > 14.0f -> {
+                val dir = if (pose.torsoLeanAngleDeg > 0) "right" else "left"
+                "Straighten torso (${abs(pose.torsoLeanAngleDeg).roundToInt()}° $dir lean)"
+            }
+            abs(pose.headTiltAngleDeg) > 12.0f -> {
+                "Level chin (${abs(pose.headTiltAngleDeg).roundToInt()}° tilt)"
+            }
+            else -> null
+        }
+
+        currentFramingGuide = PortraitFramingGuide(
+            targetBox = CoachRectF(0.18f, 0.12f, 0.82f, 0.82f),
+            subjectBox = box,
+            centerOffset = centerOffset,
+            heightRatio = heightRatio,
+            horizontalAlignment = horizontalAlignment,
+            distanceState = distanceState,
+            isCentered = isCentered,
+            isFramed = isFramed,
+            isPerfect = isPerfect,
+            primaryDirection = primaryDirection,
+            postureHint = postureHint
         )
 
         return Pair(coachSuggestion, skeleton)

@@ -25,6 +25,7 @@ class SceneCoachAnalyzer(
     private val geometryAnalyzer = GeometryAnalyzer(context)
     val closedLoopTracker = ClosedLoopTracker()
     private val ruleEngine = RuleEngine(closedLoopTracker)
+    val environmentCoach = EnvironmentCoach(context)
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val isAnalyzing = AtomicBoolean(false)
@@ -159,9 +160,16 @@ class SceneCoachAnalyzer(
                 lastFpsCalculationTime = now
             }
 
+            val topLabel = placesResult.first.firstOrNull()?.label
+            val envAdvice = environmentCoach.getAdvice(placesResult.second, topLabel)
+
             val uiState = CoachUiState(
                 activeSuggestion = activeSuggestion,
                 targetSkeleton = targetSkeleton,
+                framingGuide = ruleEngine.currentFramingGuide,
+                isOnline = envAdvice.isOnline,
+                environmentName = envAdvice.title,
+                environmentAdvice = envAdvice.compositionAdvice,
                 poseMatched = poseMatched,
                 hasHumanSubject = poseState != null,
                 isSuppressed = activeSuggestion?.let { closedLoopTracker.isSuppressed(it.id) } ?: false,
@@ -187,6 +195,7 @@ class SceneCoachAnalyzer(
         geometryAnalyzer.close()
         placesClassifier.close()
         poseDetector.close()
+        environmentCoach.close()
     }
 
     companion object {

@@ -256,4 +256,82 @@ class RuleEngineTest {
         assertEquals(2, suggestion.priority)
         assertEquals("Straighten Pose", suggestion.shortLabel)
     }
+
+    @Test
+    fun testPortraitFramingGuide_detectsOffCenterLeft_recommendsMoveRight() {
+        // Subject at left side of screen: centerX = 0.25 (offset = -0.25 < -0.08)
+        val leftBox = CoachRectF(0.10f, 0.20f, 0.40f, 0.85f) // width=0.30, cx=0.25, height=0.65
+        val pose = HumanPoseState(
+            boundingBox = leftBox,
+            keypoints = emptyList(),
+            isStanding = true,
+            isSitting = false,
+            torsoLeanAngleDeg = 0.0f,
+            headTiltAngleDeg = 0.0f,
+            handsVisible = true,
+            gridPosition = GridThirdsRegion.LEFT_THIRD
+        )
+
+        val state = MeasuredFrameState(poseState = pose)
+        ruleEngine.evaluate(state)
+
+        val guide = ruleEngine.currentFramingGuide
+        assertNotNull("Framing guide must be computed when pose exists", guide)
+        assertFalse("Subject at x=0.25 should NOT be centered", guide!!.isCentered)
+        assertEquals(HorizontalAlignmentState.MOVE_RIGHT, guide.horizontalAlignment)
+        assertTrue(guide.primaryDirection.contains("Move Subject Right"))
+        assertFalse(guide.isPerfect)
+    }
+
+    @Test
+    fun testPortraitFramingGuide_detectsOffCenterRight_recommendsMoveLeft() {
+        // Subject at right side of screen: centerX = 0.75 (offset = +0.25 > 0.08)
+        val rightBox = CoachRectF(0.60f, 0.20f, 0.90f, 0.85f) // width=0.30, cx=0.75, height=0.65
+        val pose = HumanPoseState(
+            boundingBox = rightBox,
+            keypoints = emptyList(),
+            isStanding = true,
+            isSitting = false,
+            torsoLeanAngleDeg = 0.0f,
+            headTiltAngleDeg = 0.0f,
+            handsVisible = true,
+            gridPosition = GridThirdsRegion.RIGHT_THIRD
+        )
+
+        val state = MeasuredFrameState(poseState = pose)
+        ruleEngine.evaluate(state)
+
+        val guide = ruleEngine.currentFramingGuide
+        assertNotNull(guide)
+        assertFalse(guide!!.isCentered)
+        assertEquals(HorizontalAlignmentState.MOVE_LEFT, guide.horizontalAlignment)
+        assertTrue(guide.primaryDirection.contains("Move Subject Left"))
+        assertFalse(guide.isPerfect)
+    }
+
+    @Test
+    fun testPortraitFramingGuide_whenCenteredAndCorrectDistance_marksPerfect() {
+        // Subject centered: centerX = 0.50 (offset = 0.00), height = 0.65 (optimal: 0.50..0.82)
+        val centeredBox = CoachRectF(0.35f, 0.15f, 0.65f, 0.80f) // cx=0.50, height=0.65
+        val pose = HumanPoseState(
+            boundingBox = centeredBox,
+            keypoints = emptyList(),
+            isStanding = true,
+            isSitting = false,
+            torsoLeanAngleDeg = 0.0f,
+            headTiltAngleDeg = 0.0f,
+            handsVisible = true,
+            gridPosition = GridThirdsRegion.CENTER_THIRD
+        )
+
+        val state = MeasuredFrameState(poseState = pose)
+        ruleEngine.evaluate(state)
+
+        val guide = ruleEngine.currentFramingGuide
+        assertNotNull(guide)
+        assertTrue("Subject at centerX=0.50 must be marked centered", guide!!.isCentered)
+        assertEquals(DistanceFramingState.OPTIMAL, guide.distanceState)
+        assertTrue("Centered and optimal distance must trigger isPerfect", guide.isPerfect)
+        assertTrue(guide.primaryDirection.contains("Perfect Center"))
+    }
 }
