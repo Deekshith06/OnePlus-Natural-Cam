@@ -121,13 +121,13 @@ fun CameraScreen() {
     // Register AI Photography Director on launch
     val currentAiEnabled by rememberUpdatedState(isAiDirectorEnabled)
     DisposableEffect(cameraManager) {
-        val director = AiPhotographyDirector { suggestion ->
+        val director = AiPhotographyDirector(context) { suggestion ->
             if (currentAiEnabled) {
                 aiSuggestion = suggestion
             }
         }
         cameraManager.registerAiDirector(director)
-        onDispose { }
+        onDispose { director.close() }
     }
 
     // Video recording timer

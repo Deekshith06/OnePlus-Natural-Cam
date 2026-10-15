@@ -1,5 +1,6 @@
 package com.deekshith.naturalcam.ai
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import androidx.camera.core.ImageAnalysis
@@ -23,13 +24,19 @@ data class SceneSuggestion(
 )
 
 class AiPhotographyDirector(
+    context: Context? = null,
     private val onSuggestionUpdated: (SceneSuggestion) -> Unit
 ) : ImageAnalysis.Analyzer {
 
+    private val neuralDirector = context?.let { OfflineNeuralDirector(it) }
     private var frameSkipCounter = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastTitle: String? = null
     private var lastUpdateTimestamp = 0L
+
+    fun close() {
+        neuralDirector?.close()
+    }
 
     override fun analyze(image: ImageProxy) {
         // Run analysis on 1 out of every 12 frames for < 1ms overhead and zero battery impact
@@ -40,6 +47,16 @@ class AiPhotographyDirector(
         }
 
         try {
+            // 1. Run Offline On-Device Neural Model inference (Qualcomm NPU / TFLite)
+            var neuralResult: NeuralDetectionResult? = null
+            if (neuralDirector?.isInitialized == true) {
+                try {
+                    val frameBitmap = image.toBitmap()
+                    neuralResult = neuralDirector.classifyFrame(frameBitmap)
+                    frameBitmap.recycle()
+                } catch (_: Exception) {}
+            }
+
             val yPlane = image.planes[0]
             val uPlane = if (image.planes.size > 1) image.planes[1] else null
             val vPlane = if (image.planes.size > 2) image.planes[2] else null
@@ -144,8 +161,29 @@ class AiPhotographyDirector(
                 else -> "✓ Subject Perfectly Aligned! Ready to shoot"
             }
 
-            // Smart Scene Decision Matrix (Huawei XMAGE / Master AI)
+            // Smart Scene Decision Matrix (Huawei Master AI + On-Device TFLite Neural Model)
             val suggestion = when {
+                // 0. High-Confidence On-Device Neural Model Detection (Qualcomm NPU)
+                neuralResult != null && neuralResult.confidence > 0.20f && neuralResult.category != SceneCategory.BALANCED_GENERAL -> {
+                    val recFilter = ForestDslrFilter.values().firstOrNull { it.id == neuralResult.recommendedFilterId }
+                        ?: ForestDslrFilter.NATURAL
+                    val recMode = if (neuralResult.category == SceneCategory.PORTRAIT_HUMAN) CameraMode.PORTRAIT else CameraMode.PHOTO
+
+                    SceneSuggestion(
+                        title = "🤖 ${neuralResult.topLabel} (${(neuralResult.confidence * 100).toInt()}%)",
+                        subtitle = neuralResult.coachingAdvice,
+                        recommendedFilter = recFilter,
+                        recommendedEv = neuralResult.recommendedEv,
+                        recommendedMode = recMode,
+                        lightingDesc = "On-Device Neural NPU",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = neuralResult.category == SceneCategory.PORTRAIT_HUMAN || hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
+                    )
+                }
+
                 // 1. Portrait + Forest / Outdoor Subject
                 hasPerson && greenRatio > 0.20f -> {
                     SceneSuggestion(
@@ -284,13 +322,23 @@ class AiPhotographyDirector(
 
                 // 9. Balanced Natural Scene
                 else -> {
+                    val title = if (neuralResult != null && neuralResult.confidence > 0.15f) {
+                        "🤖 AI: ${neuralResult.topLabel} (${(neuralResult.confidence * 100).toInt()}%)"
+                    } else {
+                        "🌿 Natural Balanced Scene"
+                    }
+                    val sub = if (neuralResult != null && neuralResult.confidence > 0.15f) {
+                        neuralResult.coachingAdvice
+                    } else {
+                        "Optimal lighting. Zero-bleach Sony IMX890 natural tone active"
+                    }
                     SceneSuggestion(
-                        title = "🌿 Natural Balanced Scene",
-                        subtitle = "Optimal lighting. Zero-bleach Sony IMX890 natural tone active",
+                        title = title,
+                        subtitle = sub,
                         recommendedFilter = ForestDslrFilter.NATURAL,
                         recommendedEv = -0.3f,
                         recommendedMode = CameraMode.PHOTO,
-                        lightingDesc = "Balanced Daylight",
+                        lightingDesc = if (neuralResult != null) "Snapdragon NPU Active" else "Balanced Daylight",
                         subjectCenterX = subjX,
                         subjectCenterY = subjY,
                         hasHumanSubject = hasPerson,
