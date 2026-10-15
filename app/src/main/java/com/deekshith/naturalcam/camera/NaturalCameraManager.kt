@@ -493,10 +493,11 @@ class NaturalCameraManager(
     private fun saveBitmapToGallery(bitmap: android.graphics.Bitmap, prefix: String = "IMG_DSLR"): Uri {
         val name = "${prefix}_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
         val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "$name.jpg")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/NaturalCam")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
 
@@ -505,7 +506,15 @@ class NaturalCameraManager(
 
         context.contentResolver.openOutputStream(uri)?.use { stream ->
             bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, stream)
+            stream.flush()
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+            context.contentResolver.update(uri, contentValues, null, null)
+        }
+
         return uri
     }
 
@@ -557,6 +566,7 @@ class NaturalCameraManager(
 
     companion object {
         private const val TAG = "NaturalCameraManager"
-        private const val FILENAME_FORMAT = "yyyyMMdd_HHmmss"
+        private const val FILENAME_FORMAT = "yyyyMMdd_HHmmss_SSS"
     }
 }
+

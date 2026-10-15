@@ -131,35 +131,50 @@ object PoseLibrary {
         val w = size.width
         val h = size.height
         val stroke = Stroke(
-            width = 2.5f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 8f), 0f)
+            width = 3.0f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 10f), 0f)
         )
+        val solidStroke = Stroke(width = 2.5f)
 
         when (shape) {
             SilhouetteShape.STANDING_HANDS_POCKETS -> {
                 // Head
-                drawScope.drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.5f, h * 0.28f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.085f, center = Offset(w * 0.5f, h * 0.28f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.5f, h * 0.28f), 5f)
+                // Eye-level subtle alignment guide
+                drawScope.drawLine(color.copy(alpha = 0.4f), Offset(w * 0.44f, h * 0.27f), Offset(w * 0.56f, h * 0.27f), strokeWidth = 1.5f)
+
                 // Shoulders & Torso
                 val torso = Path().apply {
-                    moveTo(w * 0.38f, h * 0.36f)
-                    lineTo(w * 0.62f, h * 0.36f)
-                    lineTo(w * 0.58f, h * 0.58f)
-                    lineTo(w * 0.42f, h * 0.58f)
+                    moveTo(w * 0.36f, h * 0.36f)
+                    lineTo(w * 0.64f, h * 0.36f)
+                    lineTo(w * 0.60f, h * 0.58f)
+                    lineTo(w * 0.40f, h * 0.58f)
                     close()
                 }
                 drawScope.drawPath(torso, color, style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.36f, h * 0.36f))
+                drawJoint(drawScope, color, Offset(w * 0.64f, h * 0.36f))
+
                 // Arms in pockets
-                drawScope.drawLine(color, Offset(w * 0.38f, h * 0.36f), Offset(w * 0.35f, h * 0.52f), strokeWidth = 2.5f)
-                drawScope.drawLine(color, Offset(w * 0.35f, h * 0.52f), Offset(w * 0.43f, h * 0.56f), strokeWidth = 2.5f)
-                drawScope.drawLine(color, Offset(w * 0.62f, h * 0.36f), Offset(w * 0.65f, h * 0.52f), strokeWidth = 2.5f)
-                drawScope.drawLine(color, Offset(w * 0.65f, h * 0.52f), Offset(w * 0.57f, h * 0.56f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.36f, h * 0.36f), Offset(w * 0.33f, h * 0.50f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.33f, h * 0.50f), Offset(w * 0.41f, h * 0.56f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.41f, h * 0.56f))
+
+                drawScope.drawLine(color, Offset(w * 0.64f, h * 0.36f), Offset(w * 0.67f, h * 0.50f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.67f, h * 0.50f), Offset(w * 0.59f, h * 0.56f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.59f, h * 0.56f))
+
                 // Legs
-                drawScope.drawLine(color, Offset(w * 0.46f, h * 0.58f), Offset(w * 0.44f, h * 0.88f), strokeWidth = 2.5f)
-                drawScope.drawLine(color, Offset(w * 0.54f, h * 0.58f), Offset(w * 0.56f, h * 0.88f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.44f, h * 0.58f), Offset(w * 0.43f, h * 0.88f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.56f, h * 0.58f), Offset(w * 0.57f, h * 0.88f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.43f, h * 0.88f), 5f)
+                drawJoint(drawScope, color, Offset(w * 0.57f, h * 0.88f), 5f)
             }
 
             SilhouetteShape.STANDING_OVER_SHOULDER -> {
-                drawScope.drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.60f, h * 0.30f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.085f, center = Offset(w * 0.60f, h * 0.30f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.60f, h * 0.30f), 5f)
                 val torso = Path().apply {
                     moveTo(w * 0.48f, h * 0.38f)
                     lineTo(w * 0.72f, h * 0.38f)
@@ -168,71 +183,100 @@ object PoseLibrary {
                     close()
                 }
                 drawScope.drawPath(torso, color, style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.48f, h * 0.38f))
+                drawJoint(drawScope, color, Offset(w * 0.72f, h * 0.38f))
                 drawScope.drawLine(color, Offset(w * 0.56f, h * 0.60f), Offset(w * 0.54f, h * 0.88f), strokeWidth = 2.5f)
                 drawScope.drawLine(color, Offset(w * 0.64f, h * 0.60f), Offset(w * 0.66f, h * 0.88f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.54f, h * 0.88f), 5f)
+                drawJoint(drawScope, color, Offset(w * 0.66f, h * 0.88f), 5f)
             }
 
             SilhouetteShape.STANDING_SIDE_PROFILE -> {
-                drawScope.drawCircle(color, radius = w * 0.075f, center = Offset(w * 0.42f, h * 0.28f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.42f, h * 0.28f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.42f, h * 0.28f), 5f)
+                // Nose direction pointer
+                drawScope.drawLine(color, Offset(w * 0.42f, h * 0.28f), Offset(w * 0.52f, h * 0.27f), strokeWidth = 2f)
                 val body = Path().apply {
                     moveTo(w * 0.42f, h * 0.36f)
                     lineTo(w * 0.48f, h * 0.58f)
                     lineTo(w * 0.46f, h * 0.88f)
                 }
                 drawScope.drawPath(body, color, style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.48f, h * 0.58f))
+                drawJoint(drawScope, color, Offset(w * 0.46f, h * 0.88f), 5f)
             }
 
             SilhouetteShape.SITTING_DIAGONAL_LEGS -> {
-                drawScope.drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.50f, h * 0.38f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.085f, center = Offset(w * 0.50f, h * 0.38f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.50f, h * 0.38f), 5f)
                 // Torso
-                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.46f), Offset(w * 0.50f, h * 0.64f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.46f), Offset(w * 0.50f, h * 0.64f), strokeWidth = 3f)
+                drawJoint(drawScope, color, Offset(w * 0.50f, h * 0.64f))
                 // Thighs
-                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.64f), Offset(w * 0.62f, h * 0.72f), strokeWidth = 2.5f)
-                // Diagonal Shin extended toward corner
-                drawScope.drawLine(color, Offset(w * 0.62f, h * 0.72f), Offset(w * 0.78f, h * 0.88f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.64f), Offset(w * 0.64f, h * 0.72f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.64f, h * 0.72f))
+                // Diagonal Shin extended toward bottom corner
+                drawScope.drawLine(color, Offset(w * 0.64f, h * 0.72f), Offset(w * 0.82f, h * 0.88f), strokeWidth = 3f)
+                drawJoint(drawScope, color, Offset(w * 0.82f, h * 0.88f), 6f)
+                // Support leg
                 drawScope.drawLine(color, Offset(w * 0.50f, h * 0.64f), Offset(w * 0.42f, h * 0.88f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.42f, h * 0.88f), 5f)
             }
 
             SilhouetteShape.SITTING_BENCH_RELAX -> {
-                drawScope.drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.48f, h * 0.36f), style = stroke)
-                drawScope.drawLine(color, Offset(w * 0.48f, h * 0.44f), Offset(w * 0.48f, h * 0.66f), strokeWidth = 2.5f)
+                drawScope.drawCircle(color, radius = w * 0.085f, center = Offset(w * 0.48f, h * 0.36f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.48f, h * 0.36f), 5f)
+                drawScope.drawLine(color, Offset(w * 0.48f, h * 0.44f), Offset(w * 0.48f, h * 0.66f), strokeWidth = 3f)
+                drawJoint(drawScope, color, Offset(w * 0.48f, h * 0.66f))
                 // Bench line
-                drawScope.drawLine(color, Offset(w * 0.25f, h * 0.66f), Offset(w * 0.75f, h * 0.66f), strokeWidth = 2f)
+                drawScope.drawLine(color.copy(alpha = 0.7f), Offset(w * 0.20f, h * 0.66f), Offset(w * 0.80f, h * 0.66f), strokeWidth = 2f)
                 drawScope.drawLine(color, Offset(w * 0.44f, h * 0.66f), Offset(w * 0.42f, h * 0.88f), strokeWidth = 2.5f)
                 drawScope.drawLine(color, Offset(w * 0.52f, h * 0.66f), Offset(w * 0.54f, h * 0.88f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.42f, h * 0.88f), 5f)
+                drawJoint(drawScope, color, Offset(w * 0.54f, h * 0.88f), 5f)
             }
 
             SilhouetteShape.CLOSEUP_CHIN_REST -> {
                 // Larger head circle for portrait framing
-                drawScope.drawCircle(color, radius = w * 0.18f, center = Offset(w * 0.50f, h * 0.42f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.18f, center = Offset(w * 0.50f, h * 0.40f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.50f, h * 0.40f), 6f)
+                // Eye-level framing line
+                drawScope.drawLine(color.copy(alpha = 0.5f), Offset(w * 0.38f, h * 0.38f), Offset(w * 0.62f, h * 0.38f), strokeWidth = 1.5f)
                 // Shoulders
                 val shoulders = Path().apply {
-                    moveTo(w * 0.20f, h * 0.72f)
-                    quadraticBezierTo(w * 0.32f, h * 0.60f, w * 0.42f, h * 0.60f)
-                    moveTo(w * 0.58f, h * 0.60f)
-                    quadraticBezierTo(w * 0.68f, h * 0.60f, w * 0.80f, h * 0.72f)
+                    moveTo(w * 0.18f, h * 0.68f)
+                    quadraticBezierTo(w * 0.32f, h * 0.56f, w * 0.42f, h * 0.56f)
+                    moveTo(w * 0.58f, h * 0.56f)
+                    quadraticBezierTo(w * 0.68f, h * 0.56f, w * 0.82f, h * 0.68f)
                 }
                 drawScope.drawPath(shoulders, color, style = stroke)
                 // Chin support hand indicator
-                drawScope.drawCircle(color, radius = w * 0.045f, center = Offset(w * 0.56f, h * 0.58f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.05f, center = Offset(w * 0.56f, h * 0.55f), style = solidStroke)
+                drawJoint(drawScope, color, Offset(w * 0.56f, h * 0.55f), 5f)
             }
 
             SilhouetteShape.CLOSEUP_THREE_QUARTER -> {
-                drawScope.drawCircle(color, radius = w * 0.17f, center = Offset(w * 0.50f, h * 0.40f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.17f, center = Offset(w * 0.50f, h * 0.38f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.50f, h * 0.38f), 6f)
+                // 45 degree gaze line
+                drawScope.drawLine(color.copy(alpha = 0.5f), Offset(w * 0.50f, h * 0.38f), Offset(w * 0.62f, h * 0.36f), strokeWidth = 1.5f)
                 val shoulders = Path().apply {
-                    moveTo(w * 0.18f, h * 0.75f)
-                    quadraticBezierTo(w * 0.35f, h * 0.58f, w * 0.50f, h * 0.58f)
-                    quadraticBezierTo(w * 0.65f, h * 0.58f, w * 0.82f, h * 0.75f)
+                    moveTo(w * 0.16f, h * 0.70f)
+                    quadraticBezierTo(w * 0.35f, h * 0.54f, w * 0.50f, h * 0.54f)
+                    quadraticBezierTo(w * 0.65f, h * 0.54f, w * 0.84f, h * 0.70f)
                 }
                 drawScope.drawPath(shoulders, color, style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.28f, h * 0.58f))
+                drawJoint(drawScope, color, Offset(w * 0.72f, h * 0.58f))
             }
 
             SilhouetteShape.FOREST_TREE_LEAN -> {
                 // Tree trunk reference on left
-                drawScope.drawLine(color.copy(alpha = 0.5f), Offset(w * 0.24f, 0f), Offset(w * 0.24f, h), strokeWidth = 3f)
-                drawScope.drawLine(color.copy(alpha = 0.5f), Offset(w * 0.32f, 0f), Offset(w * 0.32f, h), strokeWidth = 3f)
+                drawScope.drawLine(color.copy(alpha = 0.5f), Offset(w * 0.22f, 0f), Offset(w * 0.22f, h), strokeWidth = 3f)
+                drawScope.drawLine(color.copy(alpha = 0.5f), Offset(w * 0.30f, 0f), Offset(w * 0.30f, h), strokeWidth = 3f)
                 // Leaning Subject
-                drawScope.drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.44f, h * 0.32f), style = stroke)
+                drawScope.drawCircle(color, radius = w * 0.085f, center = Offset(w * 0.44f, h * 0.32f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.44f, h * 0.32f), 5f)
                 val torso = Path().apply {
                     moveTo(w * 0.36f, h * 0.40f)
                     lineTo(w * 0.52f, h * 0.42f)
@@ -241,16 +285,40 @@ object PoseLibrary {
                     close()
                 }
                 drawScope.drawPath(torso, color, style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.36f, h * 0.40f))
                 drawScope.drawLine(color, Offset(w * 0.42f, h * 0.62f), Offset(w * 0.42f, h * 0.88f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.42f, h * 0.88f), 5f)
             }
 
             SilhouetteShape.FOREST_PATH_WALKER -> {
-                drawScope.drawCircle(color, radius = w * 0.075f, center = Offset(w * 0.50f, h * 0.32f), style = stroke)
-                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.40f), Offset(w * 0.50f, h * 0.60f), strokeWidth = 2.5f)
+                drawScope.drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.50f, h * 0.32f), style = stroke)
+                drawJoint(drawScope, color, Offset(w * 0.50f, h * 0.32f), 5f)
+                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.40f), Offset(w * 0.50f, h * 0.60f), strokeWidth = 3f)
+                drawJoint(drawScope, color, Offset(w * 0.50f, h * 0.60f))
                 // Striding legs
-                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.60f), Offset(w * 0.42f, h * 0.88f), strokeWidth = 2.5f)
-                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.60f), Offset(w * 0.58f, h * 0.86f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.60f), Offset(w * 0.40f, h * 0.88f), strokeWidth = 2.5f)
+                drawScope.drawLine(color, Offset(w * 0.50f, h * 0.60f), Offset(w * 0.60f, h * 0.86f), strokeWidth = 2.5f)
+                drawJoint(drawScope, color, Offset(w * 0.40f, h * 0.88f), 5f)
+                drawJoint(drawScope, color, Offset(w * 0.60f, h * 0.86f), 5f)
             }
         }
     }
+
+    private fun drawJoint(drawScope: DrawScope, color: Color, center: Offset, radius: Float = 5.5f) {
+        // Outer tracking ring
+        drawScope.drawCircle(
+            color = color,
+            radius = radius + 3.5f,
+            center = center,
+            style = Stroke(width = 1.5f)
+        )
+        // Solid center core
+        drawScope.drawCircle(
+            color = color,
+            radius = radius,
+            center = center
+        )
+    }
 }
+
+

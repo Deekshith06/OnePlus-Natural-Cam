@@ -230,75 +230,7 @@ fun CameraScreen() {
             }
         }
 
-        // 2c. Huawei Smart Pose Coaching Banner (Where to Stand & Sit Advice)
-        AnimatedVisibility(
-            visible = selectedPose != null,
-            enter = fadeIn() + slideInVertically { -it },
-            exit = fadeOut() + slideOutVertically { -it },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 56.dp, start = 14.dp, end = 14.dp)
-        ) {
-            selectedPose?.let { pose ->
-                Surface(
-                    color = TranslucentBlack,
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, AmberAccent)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "💡 Huawei Pose Director",
-                                    color = AmberAccent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "• ${pose.name}",
-                                    color = White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                            IconButton(
-                                onClick = { selectedPose = null },
-                                modifier = Modifier.size(22.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close Pose Guide",
-                                    tint = LightGray,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = pose.coachingTip,
-                            color = White.copy(alpha = 0.95f),
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = "📍 ${pose.whereToStandTip}",
-                            color = AmberAccent.copy(alpha = 0.85f),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-        }
+
 
         // 3. Digital Horizon Leveler
         if (showLeveler) {
@@ -470,65 +402,150 @@ fun CameraScreen() {
             }
         }
 
-        // 7. On-Device Offline AI Scene Director Floating Card (Huawei Master AI Style)
-        AnimatedVisibility(
-            visible = aiSuggestion != null && !showFilterSelector,
-            enter = fadeIn() + slideInVertically { -it },
-            exit = fadeOut() + slideOutVertically { -it },
+        // 7. Top Floating Banners (Huawei Master AI Scene Director & Smart Pose Coach)
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = 56.dp)
+                .padding(top = 56.dp, start = 14.dp, end = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            aiSuggestion?.let { suggestion ->
-                Surface(
-                    color = TranslucentBlack,
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.7f)),
-                    modifier = Modifier.padding(horizontal = 20.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clickable {
-                                // 1-Tap apply recommended settings
-                                selectedFilter = suggestion.recommendedFilter
-                                exposureEv = suggestion.recommendedEv
-                                cameraManager.setExposureEv(suggestion.recommendedEv)
-                                if (currentMode != suggestion.recommendedMode && previewView != null) {
-                                    cameraManager.switchMode(previewView!!, suggestion.recommendedMode) {
-                                        currentMode = suggestion.recommendedMode
-                                    }
-                                }
-                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                aiSuggestion = null
-                            }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            // Master AI Scene Director Floating Card (Huawei XMAGE Style)
+            AnimatedVisibility(
+                visible = aiSuggestion != null && !showFilterSelector,
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it }
+            ) {
+                aiSuggestion?.let { suggestion ->
+                    Surface(
+                        color = Color(0xEE121212),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.85f)),
+                        modifier = Modifier.padding(horizontal = 6.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = suggestion.title,
-                                color = AmberAccent,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = suggestion.subtitle,
-                                color = White.copy(alpha = 0.9f),
-                                fontSize = 10.sp
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            color = AmberAccent,
-                            shape = RoundedCornerShape(10.dp)
+                        Row(
+                            modifier = Modifier
+                                .clickable {
+                                    // 1-Tap apply recommended settings
+                                    selectedFilter = suggestion.recommendedFilter
+                                    exposureEv = suggestion.recommendedEv
+                                    cameraManager.setExposureEv(suggestion.recommendedEv)
+                                    if (currentMode != suggestion.recommendedMode && previewView != null) {
+                                        cameraManager.switchMode(previewView!!, suggestion.recommendedMode) {
+                                            currentMode = suggestion.recommendedMode
+                                        }
+                                    }
+                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                    aiSuggestion = null
+                                }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = suggestion.title,
+                                    color = AmberAccent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = suggestion.subtitle,
+                                    color = White.copy(alpha = 0.9f),
+                                    fontSize = 10.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = AmberAccent,
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text = "APPLY",
+                                    color = Black,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { aiSuggestion = null },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss AI Suggestion",
+                                    tint = LightGray,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Huawei Smart Pose Coaching Banner (Where to Stand & Sit Advice)
+            AnimatedVisibility(
+                visible = selectedPose != null,
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it }
+            ) {
+                selectedPose?.let { pose ->
+                    Surface(
+                        color = Color(0xEE121212),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.9f)),
+                        modifier = Modifier.padding(horizontal = 6.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "💡 Huawei Pose Director",
+                                        color = Color(0xFF00E676),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "• ${pose.name}",
+                                        color = White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { selectedPose = null },
+                                    modifier = Modifier.size(22.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close Pose Guide",
+                                        tint = LightGray,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
-                                text = "APPLY",
-                                color = Black,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                text = pose.coachingTip,
+                                color = White.copy(alpha = 0.95f),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "📍 ${pose.whereToStandTip}",
+                                color = AmberAccent.copy(alpha = 0.85f),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -773,6 +790,7 @@ fun CameraScreen() {
                 IconButton(
                     onClick = {
                         showFilterSelector = !showFilterSelector
+                        if (showFilterSelector) showPoseDrawer = false
                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     },
                     modifier = Modifier
@@ -865,8 +883,8 @@ fun CameraScreen() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .background(TranslucentBlack, RoundedCornerShape(20.dp))
-                        .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                        .background(Color(0xEE121212), RoundedCornerShape(20.dp))
+                        .border(1.dp, Color(0xFF00E676).copy(alpha = 0.5f), RoundedCornerShape(20.dp))
                         .padding(vertical = 10.dp, horizontal = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -909,7 +927,12 @@ fun CameraScreen() {
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(1.dp, if (isPoseSelected) Color(0xFF00E676) else White.copy(alpha = 0.3f)),
                                 modifier = Modifier.clickable {
-                                    selectedPose = if (isPoseSelected) null else pose
+                                    if (selectedPose == pose) {
+                                        selectedPose = null
+                                    } else {
+                                        selectedPose = pose
+                                        showPoseDrawer = false
+                                    }
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                 }
                             ) {
@@ -947,8 +970,8 @@ fun CameraScreen() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .background(TranslucentBlack, RoundedCornerShape(20.dp))
-                        .border(1.dp, AmberAccent.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                        .background(Color(0xEE121212), RoundedCornerShape(20.dp))
+                        .border(1.dp, AmberAccent.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
                         .padding(vertical = 10.dp, horizontal = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
