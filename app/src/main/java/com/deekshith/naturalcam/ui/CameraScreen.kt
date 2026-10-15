@@ -147,18 +147,12 @@ fun CameraScreen() {
         }
     }
 
-    // Direct Hardware RenderEffect on PreviewView for 100% reliable 60fps live filter preview
+    // Direct Hardware RenderEffect on PreviewView for 100% reliable 60fps live filter preview (including optical bloom)
     LaunchedEffect(selectedFilter, previewView) {
         val pv = previewView ?: return@LaunchedEffect
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (selectedFilter != ForestDslrFilter.NATURAL) {
-                val effect = android.graphics.RenderEffect.createColorFilterEffect(
-                    android.graphics.ColorMatrixColorFilter(selectedFilter.matrix)
-                )
-                pv.setRenderEffect(effect)
-            } else {
-                pv.setRenderEffect(null)
-            }
+            val effect = selectedFilter.getRenderEffect()
+            pv.setRenderEffect(effect)
         }
     }
 
@@ -174,9 +168,7 @@ fun CameraScreen() {
                 .graphicsLayer {
                     // Real-Time Viewfinder Filter Preview using hardware RenderEffect (Android 12+)
                     renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && selectedFilter != ForestDslrFilter.NATURAL) {
-                        android.graphics.RenderEffect.createColorFilterEffect(
-                            android.graphics.ColorMatrixColorFilter(selectedFilter.matrix)
-                        ).asComposeRenderEffect()
+                        selectedFilter.getRenderEffect()?.asComposeRenderEffect()
                     } else {
                         null
                     }

@@ -408,13 +408,15 @@ class NaturalCameraManager(
 
     /**
      * Huawei XMAGE / Master All-In-One Multi-Capture:
-     * One single shutter press outputs 6 distinct shots simultaneously:
+     * One single shutter press outputs 8 distinct master shots simultaneously:
      * 1) Authentic Natural (Sony IMX890, zero bleach)
      * 2) High-Resolution Full-Fidelity 50MP Ultra-Detail
      * 3) Optical Portrait Bokeh (f/1.4 background depth-of-field)
-     * 4) Emerald Pine Forest DSLR Grade
-     * 5) Golden Canopy Autumn Sunbeam Grade
-     * 6) Leica Noir Deep Monochrome Grade
+     * 4) Black Pro-Mist 1/4 (Optical highlight bloom with ZERO color shift)
+     * 5) CPL Polarizer (Glare reduction & foliage contrast with 100% natural sensor colors)
+     * 6) Emerald Pine Forest DSLR Grade
+     * 7) Golden Canopy Autumn Sunbeam Grade
+     * 8) Leica Noir Deep Monochrome Grade
      */
     fun takeMultiAllInOne(
         onResultsSaved: (count: Int, firstUri: Uri) -> Unit,
@@ -435,30 +437,42 @@ class NaturalCameraManager(
                         firstUri = normalUri
 
                         // 2. High-Resolution Full-Fidelity 50MP Shot
-                        saveBitmapToGallery(baseBitmap, prefix = "2_HIGH_RES")
+                        val highResBmp = com.deekshith.naturalcam.filter.ForestDslrFilter.createHighResDetailMaster(baseBitmap)
+                        saveBitmapToGallery(highResBmp, prefix = "2_HIGH_RES")
+                        if (highResBmp != baseBitmap) highResBmp.recycle()
 
                         // 3. Optical Portrait Bokeh (Creamy f/1.4 Depth of Field)
                         val portraitBmp = com.deekshith.naturalcam.effect.PortraitBokehProcessor.createPortraitBokeh(baseBitmap)
                         saveBitmapToGallery(portraitBmp, prefix = "3_PORTRAIT_BOKEH")
                         portraitBmp.recycle()
 
-                        // 4. Emerald Pine Forest DSLR Edit
+                        // 4. Black Pro-Mist 1/4 (Optical bloom, zero color shift)
+                        val proMistBmp = ForestDslrFilter.BLACK_PRO_MIST.applyToBitmap(baseBitmap)
+                        saveBitmapToGallery(proMistBmp, prefix = "4_PRO_MIST_BLOOM")
+                        if (proMistBmp != baseBitmap) proMistBmp.recycle()
+
+                        // 5. CPL Polarizer (Anti-glare, untouched sensor color)
+                        val cplBmp = ForestDslrFilter.CPL_POLARIZER.applyToBitmap(baseBitmap)
+                        saveBitmapToGallery(cplBmp, prefix = "5_CPL_POLARIZER")
+                        if (cplBmp != baseBitmap) cplBmp.recycle()
+
+                        // 6. Emerald Pine Forest DSLR Edit
                         val emeraldBmp = ForestDslrFilter.EMERALD_FOREST.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(emeraldBmp, prefix = "4_EMERALD_FOREST")
+                        saveBitmapToGallery(emeraldBmp, prefix = "6_EMERALD_FOREST")
                         if (emeraldBmp != baseBitmap) emeraldBmp.recycle()
 
-                        // 5. Golden Canopy Autumn Sunbeam Edit
+                        // 7. Golden Canopy Autumn Sunbeam Edit
                         val goldenBmp = ForestDslrFilter.GOLDEN_CANOPY.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(goldenBmp, prefix = "5_GOLDEN_CANOPY")
+                        saveBitmapToGallery(goldenBmp, prefix = "7_GOLDEN_CANOPY")
                         if (goldenBmp != baseBitmap) goldenBmp.recycle()
 
-                        // 6. Leica Noir Monochrome Edit
+                        // 8. Leica Noir Monochrome Edit
                         val leicaBmp = ForestDslrFilter.LEICA_NOIR.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(leicaBmp, prefix = "6_LEICA_NOIR")
+                        saveBitmapToGallery(leicaBmp, prefix = "8_LEICA_NOIR")
                         if (leicaBmp != baseBitmap) leicaBmp.recycle()
 
                         ContextCompat.getMainExecutor(context).execute {
-                            onResultsSaved(6, firstUri ?: normalUri)
+                            onResultsSaved(8, firstUri ?: normalUri)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Multi all-in-one capture failed: ${e.message}", e)

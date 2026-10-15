@@ -1,10 +1,12 @@
 package com.deekshith.naturalcam.ai
 
+import android.os.Handler
+import android.os.Looper
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.deekshith.naturalcam.camera.CameraMode
 import com.deekshith.naturalcam.filter.ForestDslrFilter
-import java.nio.ByteBuffer
+import kotlin.math.abs
 
 data class SceneSuggestion(
     val title: String,
@@ -12,7 +14,12 @@ data class SceneSuggestion(
     val recommendedFilter: ForestDslrFilter,
     val recommendedEv: Float,
     val recommendedMode: CameraMode,
-    val lightingDesc: String
+    val lightingDesc: String,
+    val subjectCenterX: Float = 0.5f,
+    val subjectCenterY: Float = 0.48f,
+    val hasHumanSubject: Boolean = false,
+    val poseAlignmentHint: String = "Align subject with guide",
+    val lumaHistogram: IntArray = IntArray(16)
 )
 
 class AiPhotographyDirector(
@@ -20,19 +27,30 @@ class AiPhotographyDirector(
 ) : ImageAnalysis.Analyzer {
 
     private var frameSkipCounter = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastTitle: String? = null
+    private var lastUpdateTimestamp = 0L
 
     override fun analyze(image: ImageProxy) {
-        // Run analysis on 1 out of every 15 frames for near-zero battery and CPU impact (< 1ms)
+        // Run analysis on 1 out of every 12 frames for < 1ms overhead and zero battery impact
         frameSkipCounter++
-        if (frameSkipCounter % 15 != 0) {
+        if (frameSkipCounter % 12 != 0) {
             image.close()
             return
         }
 
         try {
-            val yBuffer = image.planes[0].buffer // Luminance plane
-            val uBuffer = if (image.planes.size > 1) image.planes[1].buffer else null
-            val vBuffer = if (image.planes.size > 2) image.planes[2].buffer else null
+            val yPlane = image.planes[0]
+            val uPlane = if (image.planes.size > 1) image.planes[1] else null
+            val vPlane = if (image.planes.size > 2) image.planes[2] else null
+
+            val yBuffer = yPlane.buffer
+            val uBuffer = uPlane?.buffer
+            val vBuffer = vPlane?.buffer
+
+            val yRowStride = yPlane.rowStride
+            val uvRowStride = uPlane?.rowStride ?: 0
+            val uvPixelStride = uPlane?.pixelStride ?: 1
 
             val width = image.width
             val height = image.height
@@ -44,39 +62,59 @@ class AiPhotographyDirector(
             var greenDominanceCount = 0
             var warmSunsetCount = 0
             var blueNightCount = 0
+            var skinPixelCount = 0
+            var skinWeightedX = 0f
+            var skinWeightedY = 0f
             var sampleCount = 0
 
-            // Sample pixels across a uniform grid
+            val histogram = IntArray(16)
+            val yLimit = yBuffer.limit()
+            val uLimit = uBuffer?.limit() ?: 0
+            val vLimit = vBuffer?.limit() ?: 0
+
             val step = 16
             for (y in 0 until height step step) {
                 for (x in 0 until width step step) {
-                    val yIndex = y * width + x
-                    if (yIndex < yBuffer.remaining()) {
+                    val yIndex = y * yRowStride + x
+                    if (yIndex in 0 until yLimit) {
                         val luma = yBuffer.get(yIndex).toInt() and 0xFF
                         totalLuma += luma
                         if (luma < minLuma) minLuma = luma
                         if (luma > maxLuma) maxLuma = luma
 
-                        // Approximate color channels from YUV
+                        val histBin = (luma shr 4).coerceIn(0, 15)
+                        histogram[histBin]++
+
+                        // Proper Camera2 YUV_420_888 rowStride + pixelStride chroma indexing
                         if (uBuffer != null && vBuffer != null) {
-                            val uvIndex = (y / 2) * (width / 2) + (x / 2)
-                            if (uvIndex < uBuffer.remaining() && uvIndex < vBuffer.remaining()) {
+                            val uvIndex = (y / 2) * uvRowStride + (x / 2) * uvPixelStride
+                            if (uvIndex in 0 until uLimit && uvIndex in 0 until vLimit) {
                                 val u = (uBuffer.get(uvIndex).toInt() and 0xFF) - 128
                                 val v = (vBuffer.get(uvIndex).toInt() and 0xFF) - 128
 
-                                // Approximate RGB
-                                val r = luma + 1.402f * v
-                                val g = luma - 0.344f * u - 0.714f * v
-                                val b = luma + 1.772f * u
+                                val r = (luma + 1.402f * v).coerceIn(0f, 255f)
+                                val g = (luma - 0.344f * u - 0.714f * v).coerceIn(0f, 255f)
+                                val b = (luma + 1.772f * u).coerceIn(0f, 255f)
 
-                                if (g > r * 1.15f && g > b * 1.15f && luma > 30) {
+                                // Chlorophyll / Foliage Detection
+                                if (g > r * 1.12f && g > b * 1.12f && luma > 28) {
                                     greenDominanceCount++
                                 }
-                                if (r > g * 1.2f && r > b * 1.4f && luma > 40) {
+                                // Golden Hour / Warm Sunbeams
+                                if (r > g * 1.18f && r > b * 1.35f && luma > 40) {
                                     warmSunsetCount++
                                 }
-                                if (b > r * 1.25f && luma < 90) {
+                                // Blue Hour / Twilight
+                                if (b > r * 1.22f && luma < 95) {
                                     blueNightCount++
+                                }
+                                // Human Skin-Tone Detection (YCbCr chrominance cluster)
+                                val cb = u + 128
+                                val cr = v + 128
+                                if (cr in 135..173 && cb in 77..127 && luma in 45..235) {
+                                    skinPixelCount++
+                                    skinWeightedX += x.toFloat() / width
+                                    skinWeightedY += y.toFloat() / height
                                 }
                             }
                         }
@@ -89,87 +127,190 @@ class AiPhotographyDirector(
             val greenRatio = if (sampleCount > 0) greenDominanceCount.toFloat() / sampleCount else 0f
             val sunsetRatio = if (sampleCount > 0) warmSunsetCount.toFloat() / sampleCount else 0f
             val nightRatio = if (sampleCount > 0) blueNightCount.toFloat() / sampleCount else 0f
+            val skinRatio = if (sampleCount > 0) skinPixelCount.toFloat() / sampleCount else 0f
             val contrastSpread = maxLuma - minLuma
 
-            // Smart Scene Decision Matrix (like Huawei Master AI)
+            val hasPerson = skinRatio > 0.04f
+            val subjX = if (skinPixelCount > 0) (skinWeightedX / skinPixelCount).coerceIn(0.15f, 0.85f) else 0.50f
+            val subjY = if (skinPixelCount > 0) (skinWeightedY / skinPixelCount).coerceIn(0.15f, 0.85f) else 0.48f
+
+            // Compute Live Pose & Framing Alignment Coaching
+            val alignmentHint = when {
+                !hasPerson -> "Position subject inside wireframe silhouette"
+                abs(subjX - 0.5f) > 0.22f && subjX < 0.5f -> "Move camera slightly LEFT or ask subject to step RIGHT"
+                abs(subjX - 0.5f) > 0.22f && subjX > 0.5f -> "Move camera slightly RIGHT or ask subject to step LEFT"
+                subjY < 0.25f -> "Too little headroom — tilt camera UP slightly"
+                subjY > 0.72f -> "Subject too low — lower camera to waist/chest height"
+                else -> "✓ Subject Perfectly Aligned! Ready to shoot"
+            }
+
+            // Smart Scene Decision Matrix (Huawei XMAGE / Master AI)
             val suggestion = when {
-                // 1. Forest & Nature Detection
-                greenRatio > 0.30f -> {
+                // 1. Portrait + Forest / Outdoor Subject
+                hasPerson && greenRatio > 0.20f -> {
+                    SceneSuggestion(
+                        title = "🌲👤 Forest Portrait Detected",
+                        subtitle = "Apply Emerald Pine + f/1.4 Bokeh & -0.3 EV for natural skin + deep greens",
+                        recommendedFilter = ForestDslrFilter.EMERALD_FOREST,
+                        recommendedEv = -0.3f,
+                        recommendedMode = CameraMode.PORTRAIT,
+                        lightingDesc = "Outdoor Canopy Portrait",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = true,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
+                    )
+                }
+
+                // 2. Forest & Canopy Sunbeams (High contrast + green foliage)
+                greenRatio > 0.25f && contrastSpread > 195 -> {
+                    SceneSuggestion(
+                        title = "🌲✨ Canopy Sunbeams Detected",
+                        subtitle = "Apply Sunbeam Bloom FX & -0.5 EV to glow sun rays without clipping",
+                        recommendedFilter = ForestDslrFilter.SUNBEAM_HALATION,
+                        recommendedEv = -0.5f,
+                        recommendedMode = CameraMode.PHOTO,
+                        lightingDesc = "Dappled Forest Sunlight",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
+                    )
+                }
+
+                // 3. Dense Forest & Woodland
+                greenRatio > 0.26f -> {
                     SceneSuggestion(
                         title = "🌲 Forest & Foliage Detected",
-                        subtitle = "Recommend Emerald Pine filter & -0.3 EV for deep foliage depth",
+                        subtitle = "Apply Emerald Pine (Dehaze + Vignette) & -0.3 EV for rich moss depth",
                         recommendedFilter = ForestDslrFilter.EMERALD_FOREST,
                         recommendedEv = -0.3f,
                         recommendedMode = CameraMode.PHOTO,
-                        lightingDesc = "Diffused Canopy Light"
+                        lightingDesc = "Diffused Canopy Light",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
                     )
                 }
 
-                // 2. Low Light / Extreme Dark
-                avgLuma < 35 -> {
+                // 4. Portrait / Human Subject Detected Indoors or Daylight
+                hasPerson && skinRatio > 0.07f -> {
+                    SceneSuggestion(
+                        title = "👤 Portrait Subject Detected",
+                        subtitle = "Switch to Portrait f/1.4 Bokeh or Pro-Mist 1/4 for zero-bleach skin tones",
+                        recommendedFilter = ForestDslrFilter.BLACK_PRO_MIST,
+                        recommendedEv = -0.3f,
+                        recommendedMode = CameraMode.PORTRAIT,
+                        lightingDesc = "Natural Skin-Tone Lock",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = true,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
+                    )
+                }
+
+                // 5. Low Light / Extreme Dark
+                avgLuma < 38 -> {
                     SceneSuggestion(
                         title = "🌙 Low-Light Night Scene",
-                        subtitle = "Recommend Nightscape Mode or Twilight Blue filter for crisp detail",
+                        subtitle = "Switch to Nightscape + Twilight Blue Halation for clean dark shadows",
                         recommendedFilter = ForestDslrFilter.TWILIGHT_BLUE,
                         recommendedEv = 0.0f,
                         recommendedMode = CameraMode.NIGHT,
-                        lightingDesc = "Dim Ambient (< 20 lux)"
+                        lightingDesc = "Dim Ambient (< 20 lux)",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
                     )
                 }
 
-                // 3. Golden Hour / Sunburst
-                sunsetRatio > 0.25f -> {
+                // 6. Golden Hour / Sunburst
+                sunsetRatio > 0.22f -> {
                     SceneSuggestion(
                         title = "🍂 Golden Hour Light Detected",
-                        subtitle = "Recommend Golden Canopy filter to capture rich sunbeams",
+                        subtitle = "Apply Golden Canopy (Warm Halation + S-Curve) for rich amber light",
                         recommendedFilter = ForestDslrFilter.GOLDEN_CANOPY,
-                        recommendedEv = -0.3f,
+                        recommendedEv = -0.4f,
                         recommendedMode = CameraMode.PHOTO,
-                        lightingDesc = "Warm Golden Hour"
+                        lightingDesc = "Warm Golden Hour",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
                     )
                 }
 
-                // 4. Blue Hour / Midnight Sky
-                nightRatio > 0.35f -> {
+                // 7. Blue Hour / Midnight Sky
+                nightRatio > 0.32f -> {
                     SceneSuggestion(
                         title = "🌌 Twilight Blue Hour",
-                        subtitle = "Recommend Twilight Blue filter to balance dark sky and lights",
+                        subtitle = "Apply Twilight Blue FX to balance deep indigo sky and warm lights",
                         recommendedFilter = ForestDslrFilter.TWILIGHT_BLUE,
                         recommendedEv = -0.2f,
                         recommendedMode = CameraMode.NIGHT,
-                        lightingDesc = "Cool Blue Hour"
+                        lightingDesc = "Cool Blue Hour",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
                     )
                 }
 
-                // 5. High Contrast / Backlit
+                // 8. High Contrast / Backlit
                 contrastSpread > 210 && avgLuma > 110 -> {
                     SceneSuggestion(
-                        title = "☀️ Backlit / High Contrast",
-                        subtitle = "Pull down EV by -0.7 to protect sky highlights from clipping",
-                        recommendedFilter = ForestDslrFilter.NATURAL,
+                        title = "☀️ Backlit / Harsh Highlights",
+                        subtitle = "Apply Pro-Mist 1/4 & -0.7 EV to bloom highlights instead of white clipping",
+                        recommendedFilter = ForestDslrFilter.BLACK_PRO_MIST,
                         recommendedEv = -0.7f,
                         recommendedMode = CameraMode.PHOTO,
-                        lightingDesc = "High Contrast Sunburst"
+                        lightingDesc = "High Dynamic Spread",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
                     )
                 }
 
-                // 6. Balanced Natural Scene
+                // 9. Balanced Natural Scene
                 else -> {
                     SceneSuggestion(
                         title = "🌿 Natural Balanced Scene",
-                        subtitle = "Optimal lighting. Hasselblad natural color matrix active",
+                        subtitle = "Optimal lighting. Zero-bleach Sony IMX890 natural tone active",
                         recommendedFilter = ForestDslrFilter.NATURAL,
                         recommendedEv = -0.3f,
                         recommendedMode = CameraMode.PHOTO,
-                        lightingDesc = "Balanced Daylight"
+                        lightingDesc = "Balanced Daylight",
+                        subjectCenterX = subjX,
+                        subjectCenterY = subjY,
+                        hasHumanSubject = hasPerson,
+                        poseAlignmentHint = alignmentHint,
+                        lumaHistogram = histogram
                     )
                 }
             }
 
-            onSuggestionUpdated(suggestion)
+            val now = System.currentTimeMillis()
+            if (suggestion.title != lastTitle || (now - lastUpdateTimestamp) > 1200L) {
+                lastTitle = suggestion.title
+                lastUpdateTimestamp = now
+                mainHandler.post {
+                    onSuggestionUpdated(suggestion)
+                }
+            }
 
-        } catch (e: Exception) {
-            // Fail safely without affecting camera preview
+        } catch (_: Exception) {
+            // Fail safely without interrupting camera preview
         } finally {
             image.close()
         }
