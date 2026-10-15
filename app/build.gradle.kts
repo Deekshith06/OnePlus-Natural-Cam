@@ -69,13 +69,14 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // CameraX with Camera2 Interop
+    // CameraX with Camera2 Interop and Video
     val cameraxVersion = "1.3.4"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
     implementation("androidx.camera:camera-extensions:$cameraxVersion")
+    implementation("androidx.camera:camera-video:$cameraxVersion")
 
     // Image loading for recent photo preview
     implementation("io.coil-kt:coil-compose:2.6.0")

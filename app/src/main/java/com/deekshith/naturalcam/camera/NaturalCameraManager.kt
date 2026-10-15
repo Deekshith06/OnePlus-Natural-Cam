@@ -1,5 +1,6 @@
 package com.deekshith.naturalcam.camera
 
+import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
 import android.hardware.camera2.CaptureRequest
@@ -9,82 +10,155 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.*
+import androidx.camera.video.VideoCapture
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.util.Consumer
 import androidx.lifecycle.LifecycleOwner
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+enum class CameraMode {
+    PHOTO,
+    VIDEO,
+    PRO,
+    PORTRAIT,
+    NIGHT
+}
+
+enum class AspectRatioMode {
+    RATIO_4_3,
+    RATIO_16_9,
+    RATIO_1_1,
+    RATIO_FULL
+}
+
 class NaturalCameraManager(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner
 ) {
     private var cameraProvider: ProcessCameraProvider? = null
-    private var camera: Camera? = null
+    var camera: Camera? = null
+        private set
+
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var activeRecording: Recording? = null
+
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     var currentLensFacing: Int = CameraSelector.LENS_FACING_BACK
         private set
 
+    var currentMode: CameraMode = CameraMode.PHOTO
+        private set
+
     var currentFlashMode: Int = ImageCapture.FLASH_MODE_OFF
         private set
 
-    private var exposureIndex: Int = 0
+    var isTorchEnabled: Boolean = false
+        private set
+
+    // Pro settings
+    var manualIso: Int? = null
+        private set
+    var manualShutterSpeedNanos: Long? = null
+        private set
+    var manualFocusDistance: Float? = null
+        private set
+
+    private var previewViewRef: PreviewView? = null
 
     @OptIn(ExperimentalCamera2Interop::class)
     fun startCamera(
         previewView: PreviewView,
-        onCameraReady: (CameraInfo) -> Unit,
-        onError: (Exception) -> Unit
+        mode: CameraMode = currentMode,
+        aspectRatio: AspectRatioMode = AspectRatioMode.RATIO_4_3,
+        onCameraReady: (CameraInfo) -> Unit = {},
+        onError: (Exception) -> Unit = {}
     ) {
+        previewViewRef = previewView
+        currentMode = mode
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
         cameraProviderFuture.addListener({
             try {
                 cameraProvider = cameraProviderFuture.get()
 
-                // 1. Build Preview with Natural Tone Camera2 Interop (NO AI Bleaching)
+                // Target aspect ratio for CameraX
+                val targetAspectRatio = when (aspectRatio) {
+                    AspectRatioMode.RATIO_16_9, AspectRatioMode.RATIO_FULL -> AspectRatio.RATIO_16_9
+                    else -> AspectRatio.RATIO_4_3
+                }
+
+                // 1. Preview Use Case with Natural Tone Camera2 Interop (NO AI Bleaching)
                 val previewBuilder = Preview.Builder()
+                    .setTargetAspectRatio(targetAspectRatio)
                 val previewExtender = Camera2Interop.Extender(previewBuilder)
-                configureNaturalToneCapture(previewExtender)
+                configureNaturalToneCapture(previewExtender, mode)
 
                 preview = previewBuilder.build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
-                // 2. Build ImageCapture with Zero-Lag & Clean Hardware Pipeline
+                // 2. Photo Capture Use Case
                 val captureBuilder = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setTargetAspectRatio(targetAspectRatio)
+                    .setCaptureMode(
+                        if (mode == CameraMode.NIGHT) ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+                        else ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+                    )
                     .setFlashMode(currentFlashMode)
 
                 val captureExtender = Camera2Interop.Extender(captureBuilder)
-                configureNaturalToneCapture(captureExtender)
-
+                configureNaturalToneCapture(captureExtender, mode)
                 imageCapture = captureBuilder.build()
 
-                // 3. Bind to Lifecycle
+                // 3. Video Capture Use Case (4K UHD / 1080p FHD Quality)
+                val qualitySelector = QualitySelector.fromOrderedList(
+                    listOf(Quality.UHD, Quality.FHD, Quality.HD),
+                    FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
+                )
+                val recorder = Recorder.Builder()
+                    .setQualitySelector(qualitySelector)
+                    .setExecutor(cameraExecutor)
+                    .build()
+                videoCapture = VideoCapture.withOutput(recorder)
+
+                // 4. Bind Use Cases to Lifecycle
                 val cameraSelector = CameraSelector.Builder()
                     .requireLensFacing(currentLensFacing)
                     .build()
 
                 cameraProvider?.unbindAll()
-                camera = cameraProvider?.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview,
-                    imageCapture
-                )
+
+                camera = if (mode == CameraMode.VIDEO) {
+                    cameraProvider?.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview,
+                        videoCapture
+                    )
+                } else {
+                    cameraProvider?.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview,
+                        imageCapture
+                    )
+                }
 
                 camera?.cameraInfo?.let { onCameraReady(it) }
 
-                // Apply initial subtle negative EV bias (-0.3 to prevent blown highlights)
+                // Default -0.3 EV highlight bias
                 applyInitialExposureBias()
 
             } catch (exc: Exception) {
@@ -94,47 +168,49 @@ class NaturalCameraManager(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    /**
-     * Injects Camera2 hardware parameters to override vendor whitening and scene bleaching:
-     * - Disables Scene Mode AI boosting
-     * - Enforces natural high-quality tone curves
-     * - Eliminates digital edge halos and oversharpening
-     */
     @OptIn(ExperimentalCamera2Interop::class)
-    private fun <T> configureNaturalToneCapture(extender: Camera2Interop.Extender<T>) {
-        // Disable scene-mode AI enhancement (kills the whitening engine)
+    private fun <T> configureNaturalToneCapture(extender: Camera2Interop.Extender<T>, mode: CameraMode) {
+        // 1. Force Disable AI Scene Boost (Kills the whitening engine)
         extender.setCaptureRequestOption(
             CaptureRequest.CONTROL_SCENE_MODE,
             CaptureRequest.CONTROL_SCENE_MODE_DISABLED
         )
 
-        // Enforce natural Edge Mode (prevents white halos around faces/edges)
+        // 2. Enforce Natural Edge rendering (No digital white sharpening halos)
         extender.setCaptureRequestOption(
             CaptureRequest.EDGE_MODE,
             CaptureRequest.EDGE_MODE_HIGH_QUALITY
         )
 
-        // Enforce natural tone mapping (prevents extreme shadow lifting)
+        // 3. Enforce Natural Tone mapping (Prevents lifting shadows into pale haze)
         extender.setCaptureRequestOption(
             CaptureRequest.TONEMAP_MODE,
             CaptureRequest.TONEMAP_MODE_HIGH_QUALITY
         )
 
-        // Natural color correction
+        // 4. Natural Color Correction & High Quality Denoising
         extender.setCaptureRequestOption(
             CaptureRequest.COLOR_CORRECTION_MODE,
             CaptureRequest.COLOR_CORRECTION_MODE_HIGH_QUALITY
         )
+        extender.setCaptureRequestOption(
+            CaptureRequest.NOISE_REDUCTION_MODE,
+            CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY
+        )
 
-        // Standard auto-exposure and natural auto-white-balance
-        extender.setCaptureRequestOption(
-            CaptureRequest.CONTROL_MODE,
-            CaptureRequest.CONTROL_MODE_AUTO
-        )
-        extender.setCaptureRequestOption(
-            CaptureRequest.CONTROL_AWB_MODE,
-            CaptureRequest.CONTROL_AWB_MODE_AUTO
-        )
+        // 5. Mode-Specific Tuning
+        if (mode == CameraMode.NIGHT) {
+            // Nightscape: Long integration with natural contrast
+            extender.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_ANTIBANDING_MODE,
+                CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_AUTO
+            )
+        } else {
+            extender.setCaptureRequestOption(
+                CaptureRequest.CONTROL_MODE,
+                CaptureRequest.CONTROL_MODE_AUTO
+            )
+        }
     }
 
     private fun applyInitialExposureBias() {
@@ -143,9 +219,7 @@ class NaturalCameraManager(
         val step = cameraInfo.exposureState.exposureCompensationStep.toFloat()
 
         if (step > 0f) {
-            // Target -0.3 EV to lock in deep contrast and natural skin tones
             val targetIndex = (-0.33f / step).toInt().coerceIn(range.lower, range.upper)
-            exposureIndex = targetIndex
             camera?.cameraControl?.setExposureCompensationIndex(targetIndex)
         }
     }
@@ -157,13 +231,12 @@ class NaturalCameraManager(
 
         if (step > 0f) {
             val targetIndex = (evOffset / step).toInt().coerceIn(range.lower, range.upper)
-            exposureIndex = targetIndex
             camera?.cameraControl?.setExposureCompensationIndex(targetIndex)
         }
     }
 
     fun setZoom(zoomRatio: Float) {
-        camera?.cameraControl?.setZoomRatio(zoomRatio)
+        camera?.cameraControl?.setZoomRatio(zoomRatio.coerceIn(0.6f, 10.0f))
     }
 
     fun setFlashMode(mode: Int) {
@@ -171,21 +244,70 @@ class NaturalCameraManager(
         imageCapture?.flashMode = mode
     }
 
-    fun switchCamera(previewView: PreviewView, onComplete: () -> Unit) {
+    fun toggleTorch(enabled: Boolean) {
+        isTorchEnabled = enabled
+        camera?.cameraControl?.enableTorch(enabled)
+    }
+
+    fun switchCamera(previewView: PreviewView, onComplete: () -> Unit = {}) {
         currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) {
             CameraSelector.LENS_FACING_FRONT
         } else {
             CameraSelector.LENS_FACING_BACK
         }
-        startCamera(previewView, {}, {})
-        onComplete()
+        startCamera(previewView, currentMode, onCameraReady = { onComplete() })
+    }
+
+    fun switchMode(previewView: PreviewView, mode: CameraMode, onComplete: () -> Unit = {}) {
+        if (currentMode == mode) return
+        currentMode = mode
+        startCamera(previewView, mode, onCameraReady = { onComplete() })
     }
 
     fun focusOnPoint(meteringPoint: MeteringPoint) {
-        val action = FocusMeteringAction.Builder(meteringPoint, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+        val action = FocusMeteringAction.Builder(
+            meteringPoint,
+            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+        )
             .setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS)
             .build()
         camera?.cameraControl?.startFocusAndMetering(action)
+    }
+
+    /**
+     * Pro Mode Manual Controls using Camera2 Interop CaptureRequestOptions
+     */
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun setProSettings(
+        iso: Int? = manualIso,
+        shutterSpeedNanos: Long? = manualShutterSpeedNanos,
+        focusDistance: Float? = manualFocusDistance
+    ) {
+        manualIso = iso
+        manualShutterSpeedNanos = shutterSpeedNanos
+        manualFocusDistance = focusDistance
+
+        val cameraControl = camera?.cameraControl ?: return
+        val builder = CaptureRequestOptions.Builder()
+
+        // Manual ISO & Shutter Speed
+        if (iso != null || shutterSpeedNanos != null) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            iso?.let { builder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, it) }
+            shutterSpeedNanos?.let { builder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, it) }
+        } else {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+        }
+
+        // Manual Focus
+        if (focusDistance != null) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+            builder.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+        } else {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+        }
+
+        Camera2CameraControl.from(cameraControl).setCaptureRequestOptions(builder.build())
     }
 
     fun takePhoto(
@@ -194,7 +316,7 @@ class NaturalCameraManager(
     ) {
         val imageCapture = this.imageCapture ?: return
 
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
+        val name = "IMG_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -215,7 +337,7 @@ class NaturalCameraManager(
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     val savedUri = output.savedUri ?: Uri.EMPTY
-                    Log.d(TAG, "Photo saved successfully: $savedUri")
+                    Log.d(TAG, "Photo saved: $savedUri")
                     onPhotoSaved(savedUri)
                 }
 
@@ -227,12 +349,54 @@ class NaturalCameraManager(
         )
     }
 
+    @SuppressLint("MissingPermission")
+    fun startVideoRecording(
+        onVideoEvent: (VideoRecordEvent) -> Unit
+    ) {
+        val videoCapture = this.videoCapture ?: return
+        if (activeRecording != null) return
+
+        val name = "VID_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/NaturalCam")
+            }
+        }
+
+        val mediaStoreOutput = MediaStoreOutputOptions.Builder(
+            context.contentResolver,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        )
+            .setContentValues(contentValues)
+            .build()
+
+        activeRecording = videoCapture.output
+            .prepareRecording(context, mediaStoreOutput)
+            .withAudioEnabled()
+            .start(ContextCompat.getMainExecutor(context), Consumer { recordEvent ->
+                onVideoEvent(recordEvent)
+                if (recordEvent is VideoRecordEvent.Finalize) {
+                    activeRecording = null
+                }
+            })
+    }
+
+    fun stopVideoRecording() {
+        activeRecording?.stop()
+        activeRecording = null
+    }
+
+    fun isRecordingVideo(): Boolean = activeRecording != null
+
     fun shutdown() {
+        activeRecording?.stop()
         cameraExecutor.shutdown()
     }
 
     companion object {
         private const val TAG = "NaturalCameraManager"
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+        private const val FILENAME_FORMAT = "yyyyMMdd_HHmmss"
     }
 }
