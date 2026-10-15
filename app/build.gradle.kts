@@ -48,6 +48,10 @@ android {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -90,4 +94,7 @@ dependencies {
 
     // Concurrent futures for camera
     implementation("androidx.concurrent:concurrent-futures-ktx:1.2.0")
+
+    // Unit Testing
+    testImplementation("junit:junit:4.13.2")
 }

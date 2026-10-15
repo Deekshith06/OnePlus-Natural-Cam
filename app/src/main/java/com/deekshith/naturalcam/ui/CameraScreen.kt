@@ -2,7 +2,6 @@ package com.deekshith.naturalcam.ui
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.camera.core.ImageCapture
 import androidx.camera.video.VideoRecordEvent
@@ -13,11 +12,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,35 +26,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
-import com.deekshith.naturalcam.ai.AiPhotographyDirector
-import com.deekshith.naturalcam.ai.SceneSuggestion
 import com.deekshith.naturalcam.camera.AspectRatioMode
 import com.deekshith.naturalcam.camera.CameraMode
 import com.deekshith.naturalcam.camera.NaturalCameraManager
-import com.deekshith.naturalcam.filter.FilterCategory
-import com.deekshith.naturalcam.filter.ForestDslrFilter
-import com.deekshith.naturalcam.pose.PoseCategory
-import com.deekshith.naturalcam.pose.PoseGuide
-import com.deekshith.naturalcam.pose.PoseLibrary
+import com.deekshith.naturalcam.coach.*
 import com.deekshith.naturalcam.sensor.rememberOrientationSensor
 import com.deekshith.naturalcam.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun CameraScreen() {
@@ -74,36 +66,21 @@ fun CameraScreen() {
     var exposureEv by remember { mutableFloatStateOf(-0.3f) }
     var aspectRatio by remember { mutableStateOf(AspectRatioMode.RATIO_4_3) }
 
-    // Filters
-    var selectedFilter by remember { mutableStateOf(ForestDslrFilter.NATURAL) }
-    var selectedCategory by remember { mutableStateOf(FilterCategory.ALL) }
-    var showFilterSelector by remember { mutableStateOf(false) }
+    // Scene Coach State
+    var coachUiState by remember { mutableStateOf(CoachUiState()) }
+    var showDebugOverlay by remember { mutableStateOf(false) }
+    var isPoseGuideEnabled by remember { mutableStateOf(false) }
 
-    // On-Device AI Scene Director (Huawei Master AI style)
-    var aiSuggestion by remember { mutableStateOf<SceneSuggestion?>(null) }
-    var isAiDirectorEnabled by remember { mutableStateOf(true) }
+    // Multi-Capture notification
+    var multiCaptureBannerText by remember { mutableStateOf<String?>(null) }
 
-    // Multi-Style Burst result notification
-    var multiBurstBannerText by remember { mutableStateOf<String?>(null) }
-
-    // Huawei Smart Pose & Composition Director
-    var selectedPose by remember { mutableStateOf<PoseGuide?>(null) }
-    var showPoseDrawer by remember { mutableStateOf(false) }
-    var selectedPoseCategory by remember { mutableStateOf(PoseCategory.STANDING) }
-
-    // Toggles
-    var showExposureSlider by remember { mutableStateOf(false) }
-    var showProControls by remember { mutableStateOf(false) }
+    // Toggles & Controls
     var showGrid by remember { mutableStateOf(false) }
     var showLeveler by remember { mutableStateOf(true) }
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_OFF) }
     var isTorchOn by remember { mutableStateOf(false) }
     var timerDurationSec by remember { mutableIntStateOf(0) }
     var countdownRemaining by remember { mutableIntStateOf(0) }
-
-    // Pro settings
-    var proIso by remember { mutableStateOf<Int?>(null) }
-    var proShutter by remember { mutableStateOf<Long?>(null) }
 
     // Video Recording state
     var isRecording by remember { mutableStateOf(false) }
@@ -114,22 +91,19 @@ fun CameraScreen() {
     var isCapturing by remember { mutableStateOf(false) }
     var focusPosition by remember { mutableStateOf<Offset?>(null) }
 
-    // Horizon leveler angle
+    // Orientation sensor for digital horizon leveler
     val rollAngle = rememberOrientationSensor(context)
     val isLevel = abs(rollAngle) <= 1.2f || abs(rollAngle - 90f) <= 1.2f || abs(rollAngle + 90f) <= 1.2f || abs(abs(rollAngle) - 180f) <= 1.2f
 
-    // Register AI Photography Director on launch
-    val currentAiEnabled by rememberUpdatedState(isAiDirectorEnabled)
+    // Register Scene Coach Analyzer on launch
     DisposableEffect(cameraManager) {
-        val director = AiPhotographyDirector(context) { suggestion ->
-            if (currentAiEnabled) {
-                aiSuggestion = suggestion
-            }
+        val coach = SceneCoachAnalyzer(context) { state ->
+            coachUiState = state
         }
-        cameraManager.registerAiDirector(director)
+        cameraManager.registerSceneCoach(coach)
         onDispose {
-            cameraManager.unregisterAiDirector()
-            director.close()
+            cameraManager.unregisterSceneCoach()
+            coach.close()
         }
     }
 
@@ -150,33 +124,13 @@ fun CameraScreen() {
         }
     }
 
-    // Direct Hardware RenderEffect on PreviewView for 100% reliable 60fps live filter preview (including optical bloom)
-    LaunchedEffect(selectedFilter, previewView) {
-        val pv = previewView ?: return@LaunchedEffect
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val effect = selectedFilter.getRenderEffect()
-            pv.setRenderEffect(effect)
-        }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Black)
     ) {
-        // 1. Camera Preview Viewfinder with Live 60fps Filter Preview
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    // Real-Time Viewfinder Filter Preview using hardware RenderEffect (Android 12+)
-                    renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && selectedFilter != ForestDslrFilter.NATURAL) {
-                        selectedFilter.getRenderEffect()?.asComposeRenderEffect()
-                    } else {
-                        null
-                    }
-                }
-        ) {
+        // 1. Camera Viewfinder (Authentic Sony IMX890 natural color pipeline - zero color matrix filters)
+        Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { ctx ->
                     PreviewView(ctx).apply {
@@ -221,26 +175,21 @@ fun CameraScreen() {
             GridOverlay(modifier = Modifier.fillMaxSize())
         }
 
-        // 2b. Huawei Smart Pose Silhouette Wireframe Guide Overlay
-        selectedPose?.let { pose ->
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                PoseLibrary.drawSilhouette(
-                    drawScope = this,
-                    shape = pose.silhouetteShape,
-                    color = AmberAccent.copy(alpha = 0.85f),
-                    size = size
-                )
-            }
+        // 3. Opt-In Target Pose Skeleton Overlay
+        if (isPoseGuideEnabled && coachUiState.targetSkeleton != null) {
+            TargetSkeletonOverlay(
+                skeleton = coachUiState.targetSkeleton!!,
+                poseMatched = coachUiState.poseMatched,
+                modifier = Modifier.fillMaxSize()
+            )
         }
 
-
-
-        // 3. Digital Horizon Leveler
+        // 4. Digital Horizon Leveler
         if (showLeveler) {
             HorizonLeveler(isLevel = isLevel, modifier = Modifier.align(Alignment.Center))
         }
 
-        // 4. Tap-To-Focus Indicator Ring
+        // 5. Tap-To-Focus Indicator Ring
         focusPosition?.let { pos ->
             Box(
                 modifier = Modifier
@@ -250,7 +199,7 @@ fun CameraScreen() {
             )
         }
 
-        // 5. Self-Timer Countdown Animation Overlay
+        // 6. Self-Timer Countdown Overlay
         if (countdownRemaining > 0) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -265,7 +214,7 @@ fun CameraScreen() {
             }
         }
 
-        // 6. Top Utility Bar
+        // 7. Top Utility Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -326,15 +275,11 @@ fun CameraScreen() {
                 )
             }
 
-            // Natural Tone / Active DSLR Filter Badge (Tap to Open Filter Suite)
+            // Authentic Sensor Tone Mode Indicator
             Surface(
                 color = TranslucentBlack,
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, if (selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else OnePlusRed.copy(alpha = 0.6f)),
-                modifier = Modifier.clickable {
-                    showFilterSelector = !showFilterSelector
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
+                border = BorderStroke(0.8.dp, OnePlusRed.copy(alpha = 0.6f))
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -343,21 +288,17 @@ fun CameraScreen() {
                     Box(
                         modifier = Modifier
                             .size(7.dp)
-                            .background(if (selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else OnePlusRed, CircleShape)
+                            .background(OnePlusRed, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = if (selectedFilter != ForestDslrFilter.NATURAL) {
-                            selectedFilter.displayName.uppercase()
-                        } else {
-                            when (currentMode) {
-                                CameraMode.PRO -> "PRO RAW"
-                                CameraMode.PORTRAIT -> "PORTRAIT"
-                                CameraMode.NIGHT -> "NIGHTSCAPE"
-                                CameraMode.VIDEO -> "4K UHD"
-                                CameraMode.MULTI -> "MULTI-STYLE"
-                                else -> "NATURAL TONE"
-                            }
+                        text = when (currentMode) {
+                            CameraMode.PRO -> "PRO RAW"
+                            CameraMode.PORTRAIT -> "PORTRAIT"
+                            CameraMode.NIGHT -> "NIGHTSCAPE"
+                            CameraMode.VIDEO -> "4K UHD"
+                            CameraMode.MULTI -> "AUTHENTIC MULTI"
+                            else -> "NATURAL TONE"
                         },
                         color = White,
                         fontSize = 10.sp,
@@ -390,6 +331,27 @@ fun CameraScreen() {
                 )
             }
 
+            // Opt-In Pose Guide Skeleton Toggle
+            IconButton(
+                onClick = {
+                    isPoseGuideEnabled = !isPoseGuideEnabled
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                },
+                modifier = Modifier
+                    .background(
+                        if (isPoseGuideEnabled) Color(0xFF00E676).copy(alpha = 0.85f) else TranslucentBlack,
+                        CircleShape
+                    )
+                    .size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccessibilityNew,
+                    contentDescription = "Pose Guide",
+                    tint = if (isPoseGuideEnabled) Black else White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
             // Grid Toggle
             IconButton(
                 onClick = { showGrid = !showGrid },
@@ -405,228 +367,70 @@ fun CameraScreen() {
             }
         }
 
-        // 7. Top Floating Banners (Huawei Master AI Scene Director & Smart Pose Coach)
-        Column(
+        // 8. Top Center Single Translucent Scene Coach Pill (Huawei Master AI style)
+        val activeSuggestion = coachUiState.activeSuggestion
+        AnimatedVisibility(
+            visible = activeSuggestion != null && !coachUiState.isSuppressed,
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = 56.dp, start = 14.dp, end = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(top = 56.dp)
         ) {
-            // Master AI Scene Director Floating Card (Huawei XMAGE Style)
-            AnimatedVisibility(
-                visible = aiSuggestion != null && !showFilterSelector,
-                enter = fadeIn() + slideInVertically { -it },
-                exit = fadeOut() + slideOutVertically { -it }
-            ) {
-                aiSuggestion?.let { suggestion ->
-                    Surface(
-                        color = Color(0xEE121212),
-                        shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.85f)),
-                        modifier = Modifier.padding(horizontal = 6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .clickable {
-                                    // 1-Tap apply place-based recommended settings
-                                    selectedFilter = suggestion.recommendedFilter
-                                    exposureEv = suggestion.recommendedEv
-                                    cameraManager.setExposureEv(suggestion.recommendedEv)
-                                    selectedZoom = suggestion.recommendedZoom
-                                    cameraManager.setZoom(suggestion.recommendedZoom)
-                                    suggestion.recommendedPoseId?.let { poseId ->
-                                        selectedPose = PoseLibrary.poses.firstOrNull { it.id == poseId }
+            activeSuggestion?.let { suggestion ->
+                SceneCoachPill(
+                    suggestion = suggestion,
+                    onApply = {
+                        // Apply action to hardware
+                        when (val action = suggestion.action) {
+                            is CoachAction.AdjustEv -> {
+                                exposureEv = action.targetEv
+                                cameraManager.setExposureEv(action.targetEv)
+                            }
+                            is CoachAction.SetZoom -> {
+                                selectedZoom = action.targetZoom
+                                cameraManager.setZoom(action.targetZoom)
+                            }
+                            is CoachAction.SwitchMode -> {
+                                if (currentMode != action.mode && previewView != null) {
+                                    cameraManager.switchMode(previewView!!, action.mode) {
+                                        currentMode = action.mode
                                     }
-                                    if (currentMode != suggestion.recommendedMode && previewView != null) {
-                                        cameraManager.switchMode(previewView!!, suggestion.recommendedMode) {
-                                            currentMode = suggestion.recommendedMode
-                                        }
-                                    }
-                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                    aiSuggestion = null
                                 }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = suggestion.title,
-                                        color = AmberAccent,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "• ${if (suggestion.recommendedZoom == 1.0f) "1x" else if (suggestion.recommendedZoom == 2.0f) "2x" else "${suggestion.recommendedZoom}x"} • ${suggestion.recommendedFilter.displayName}",
-                                        color = White.copy(alpha = 0.7f),
-                                        fontSize = 10.sp
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = suggestion.subtitle,
-                                    color = White.copy(alpha = 0.9f),
-                                    fontSize = 10.sp,
-                                    lineHeight = 14.sp
-                                )
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                color = AmberAccent,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text(
-                                    text = "APPLY",
-                                    color = Black,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                            IconButton(
-                                onClick = { aiSuggestion = null },
-                                modifier = Modifier.size(20.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Dismiss AI Suggestion",
-                                    tint = LightGray,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            }
+                            else -> {}
                         }
+                        cameraManager.sceneCoachAnalyzer?.applySuggestion(suggestion)
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    },
+                    onDismiss = {
+                        cameraManager.sceneCoachAnalyzer?.dismissSuggestion(suggestion.id)
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    },
+                    onLongPress = {
+                        showDebugOverlay = true
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     }
-                }
-            }
-
-            // Huawei Smart Pose Coaching Banner (Where to Stand & Sit Advice)
-            AnimatedVisibility(
-                visible = selectedPose != null,
-                enter = fadeIn() + slideInVertically { -it },
-                exit = fadeOut() + slideOutVertically { -it }
-            ) {
-                selectedPose?.let { pose ->
-                    Surface(
-                        color = Color(0xEE121212),
-                        shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.9f)),
-                        modifier = Modifier.padding(horizontal = 6.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "💡 Huawei Pose Director",
-                                        color = Color(0xFF00E676),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "• ${pose.name}",
-                                        color = White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { selectedPose = null },
-                                    modifier = Modifier.size(22.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Close Pose Guide",
-                                        tint = LightGray,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = pose.coachingTip,
-                                color = White.copy(alpha = 0.95f),
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = "📍 ${pose.whereToStandTip}",
-                                color = AmberAccent.copy(alpha = 0.85f),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
+                )
             }
         }
 
-        // 8. Active Filter Indicator Chip on Viewfinder (Tap to Reset to Natural)
-        AnimatedVisibility(
-            visible = selectedFilter != ForestDslrFilter.NATURAL,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 220.dp)
-        ) {
-            Surface(
-                color = TranslucentBlack,
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, AmberAccent),
-                modifier = Modifier.clickable {
-                    selectedFilter = ForestDslrFilter.NATURAL
-                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        Color(selectedFilter.swatchStart),
-                                        Color(selectedFilter.swatchEnd)
-                                    )
-                                )
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = selectedFilter.displayName,
-                        color = AmberAccent,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Reset filter",
-                        tint = LightGray,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
+        // 9. Debug Telemetry Overlay (Long-Press on Pill)
+        if (showDebugOverlay) {
+            CoachDebugOverlay(
+                uiState = coachUiState,
+                onClose = { showDebugOverlay = false },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 56.dp, start = 16.dp, end = 16.dp)
+            )
         }
 
-        // 9. Multi-Style Burst Notification Toast
+        // 10. Multi-Capture Toast
         AnimatedVisibility(
-            visible = multiBurstBannerText != null,
+            visible = multiCaptureBannerText != null,
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
             modifier = Modifier
@@ -639,7 +443,7 @@ fun CameraScreen() {
                 border = BorderStroke(1.dp, AmberAccent)
             ) {
                 Text(
-                    text = multiBurstBannerText ?: "",
+                    text = multiCaptureBannerText ?: "",
                     color = White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
@@ -648,435 +452,43 @@ fun CameraScreen() {
             }
         }
 
-        // 10. Video Recording Duration Timer (When Recording)
-        if (isRecording) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 56.dp)
-                    .background(OnePlusRed, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                val mins = recordingDurationSec / 60
-                val secs = recordingDurationSec % 60
-                Text(
-                    text = String.format("%02d:%02d", mins, secs),
-                    color = White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // 11. Exposure Compensation Dial (-2.0 EV to +2.0 EV)
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(
-                    onClick = { showExposureSlider = !showExposureSlider },
-                    modifier = Modifier
-                        .background(TranslucentBlack, CircleShape)
-                        .size(42.dp)
-                ) {
-                    Text(
-                        text = "${if (exposureEv > 0) "+" else ""}${String.format("%.1f", exposureEv)}",
-                        color = AmberAccent,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                AnimatedVisibility(
-                    visible = showExposureSlider,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = TranslucentBlack),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .width(48.dp)
-                            .height(160.dp)
-                    ) {
-                        Slider(
-                            value = exposureEv,
-                            onValueChange = {
-                                exposureEv = it
-                                cameraManager.setExposureEv(it)
-                            },
-                            valueRange = -2.0f..2.0f,
-                            steps = 7,
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .padding(vertical = 10.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // 12. PRO Mode Manual Controls Sheet (When in PRO mode)
-        if (currentMode == CameraMode.PRO) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 200.dp)
-                    .background(TranslucentBlack, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text("ISO", color = LightGray, fontSize = 10.sp)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val isos = listOf(null, 100, 200, 400, 800, 1600, 3200)
-                    items(isos) { iso ->
-                        val isSelected = proIso == iso
-                        Text(
-                            text = if (iso == null) "AUTO" else "$iso",
-                            color = if (isSelected) AmberAccent else White,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier
-                                .clickable {
-                                    proIso = iso
-                                    cameraManager.setProSettings(iso = iso)
-                                }
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // 13. Bottom Control Area
+        // 11. Bottom Controls Bar
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Quick Control Strip: Multi-Lens Zoom + Filter Suite Button + Master AI Toggle
+            // Zoom Selector Buttons
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                modifier = Modifier
+                    .background(TranslucentBlack, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Multi-Lens Quick Selector (0.6x, 1.0x, 2.0x, 5.0x)
-                Row(
-                    modifier = Modifier
-                        .background(TranslucentBlack, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(0.6f, 1.0f, 2.0f, 5.0f).forEach { zoom ->
-                        val isSelected = abs(selectedZoom - zoom) < 0.15f
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isSelected) OnePlusRed else Color.Transparent)
-                                .clickable {
-                                    selectedZoom = zoom
-                                    cameraManager.setZoom(zoom)
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = when (zoom) {
-                                    0.6f -> "0.6x"
-                                    1.0f -> "1x"
-                                    2.0f -> "2x"
-                                    else -> "5x"
-                                },
-                                color = White,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // DSLR Filter Suite Toggle Button (with active amber glow)
-                IconButton(
-                    onClick = {
-                        showFilterSelector = !showFilterSelector
-                        if (showFilterSelector) showPoseDrawer = false
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(
-                            if (showFilterSelector || selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else TranslucentBlack,
-                            CircleShape
-                        )
-                        .border(
-                            1.dp,
-                            if (showFilterSelector || selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else White.copy(alpha = 0.4f),
-                            CircleShape
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "Filters",
-                        tint = if (showFilterSelector || selectedFilter != ForestDslrFilter.NATURAL) Black else White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Master AI Director Toggle Button (Huawei Master AI style)
-                IconButton(
-                    onClick = {
-                        isAiDirectorEnabled = !isAiDirectorEnabled
-                        if (!isAiDirectorEnabled) aiSuggestion = null
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(
-                            if (isAiDirectorEnabled) Color(0xFF1E88E5).copy(alpha = 0.8f) else TranslucentBlack,
-                            CircleShape
-                        )
-                        .border(
-                            1.dp,
-                            if (isAiDirectorEnabled) Color(0xFF64B5F6) else White.copy(alpha = 0.4f),
-                            CircleShape
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Psychology,
-                        contentDescription = "Master AI",
-                        tint = White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Huawei Smart Pose Guide Toggle Button
-                IconButton(
-                    onClick = {
-                        showPoseDrawer = !showPoseDrawer
-                        if (showPoseDrawer) showFilterSelector = false
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(
-                            if (showPoseDrawer || selectedPose != null) Color(0xFF00E676).copy(alpha = 0.85f) else TranslucentBlack,
-                            CircleShape
-                        )
-                        .border(
-                            1.dp,
-                            if (showPoseDrawer || selectedPose != null) Color(0xFF00E676) else White.copy(alpha = 0.4f),
-                            CircleShape
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccessibilityNew,
-                        contentDescription = "Pose Guide",
-                        tint = if (showPoseDrawer || selectedPose != null) Black else White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            // Huawei Smart Pose Guide Drawer (Expands right above modes)
-            AnimatedVisibility(
-                visible = showPoseDrawer,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
-                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .background(Color(0xEE121212), RoundedCornerShape(20.dp))
-                        .border(1.dp, Color(0xFF00E676).copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                        .padding(vertical = 10.dp, horizontal = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Pose Category Tabs (Standing | Sitting | Close-Up | Forest / Nature)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(bottom = 8.dp)
+                listOf(0.6f to ".6", 1.0f to "1x", 2.0f to "2x", 5.0f to "5x").forEach { (zoom, label) ->
+                    val isSelected = abs(selectedZoom - zoom) < 0.15f
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(if (isSelected) AmberAccent else Color.Transparent)
+                            .clickable {
+                                selectedZoom = zoom
+                                cameraManager.setZoom(zoom)
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        items(PoseCategory.values()) { category ->
-                            val isCatSelected = selectedPoseCategory == category
-                            Text(
-                                text = "${category.icon} ${category.label}",
-                                color = if (isCatSelected) Color(0xFF00E676) else LightGray,
-                                fontSize = 11.sp,
-                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier
-                                    .clickable {
-                                        selectedPoseCategory = category
-                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                    }
-                                    .background(
-                                        if (isCatSelected) Color(0xFF00E676).copy(alpha = 0.2f) else Color.Transparent,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    // Pose Selection Cards
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val posesInCategory = PoseLibrary.poses.filter { it.category == selectedPoseCategory }
-                        items(posesInCategory) { pose ->
-                            val isPoseSelected = selectedPose == pose
-                            Surface(
-                                color = if (isPoseSelected) Color(0xFF00E676) else TranslucentBlack,
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, if (isPoseSelected) Color(0xFF00E676) else White.copy(alpha = 0.3f)),
-                                modifier = Modifier.clickable {
-                                    if (selectedPose == pose) {
-                                        selectedPose = null
-                                    } else {
-                                        selectedPose = pose
-                                        showPoseDrawer = false
-                                    }
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = pose.name,
-                                        color = if (isPoseSelected) Black else White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = if (isPoseSelected) "ACTIVE GUIDE" else "Tap to align",
-                                        color = if (isPoseSelected) Black.copy(alpha = 0.8f) else AmberAccent,
-                                        fontSize = 9.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Bottom Filter Drawer with Visual Swatches (Expands cleanly right above Modes)
-            AnimatedVisibility(
-                visible = showFilterSelector,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
-                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .background(Color(0xEE121212), RoundedCornerShape(20.dp))
-                        .border(1.dp, AmberAccent.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                        .padding(vertical = 10.dp, horizontal = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Category Tabs (All | Forest & Nature | Low-Light & Night | Black & White)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    ) {
-                        items(FilterCategory.values()) { category ->
-                            val isCatSelected = selectedCategory == category
-                            Text(
-                                text = category.label,
-                                color = if (isCatSelected) AmberAccent else LightGray,
-                                fontSize = 11.sp,
-                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier
-                                    .clickable {
-                                        selectedCategory = category
-                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                    }
-                                    .background(
-                                        if (isCatSelected) AmberAccent.copy(alpha = 0.2f) else Color.Transparent,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    // Visual Filter Swatches Carousel
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val filteredList = ForestDslrFilter.values().filter {
-                            selectedCategory == FilterCategory.ALL || it.category == selectedCategory || it == ForestDslrFilter.NATURAL
-                        }
-
-                        items(filteredList) { filter ->
-                            val isSelected = selectedFilter == filter
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.clickable {
-                                    selectedFilter = filter
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .border(
-                                            width = if (isSelected) 3.dp else 1.dp,
-                                            color = if (isSelected) AmberAccent else White.copy(alpha = 0.4f),
-                                            shape = CircleShape
-                                        )
-                                        .padding(if (isSelected) 3.dp else 1.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            Brush.linearGradient(
-                                                listOf(
-                                                    Color(filter.swatchStart),
-                                                    Color(filter.swatchEnd)
-                                                )
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Active",
-                                            tint = White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Text(
-                                    text = filter.displayName,
-                                    color = if (isSelected) AmberAccent else White,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
+                        Text(
+                            text = label,
+                            color = if (isSelected) Black else White,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
                     }
                 }
             }
@@ -1166,7 +578,7 @@ fun CameraScreen() {
                     }
                 }
 
-                // Shutter / Record / Multi-Burst Button
+                // Shutter / Record Button
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -1202,16 +614,15 @@ fun CameraScreen() {
                                 }
 
                                 CameraMode.MULTI -> {
-                                    // Huawei XMAGE / Master All-In-One Multi-Capture
                                     isCapturing = true
                                     cameraManager.takeMultiAllInOne(
                                         onResultsSaved = { count, firstUri ->
                                             isCapturing = false
                                             lastCapturedUri = firstUri
-                                            multiBurstBannerText = "✨ $count Photos Saved: Natural, 50MP High-Res, Portrait Bokeh & Master Styles!"
+                                            multiCaptureBannerText = "✨ $count Authentic Master Shots Saved (Natural & Portrait Bokeh)"
                                             scope.launch {
-                                                delay(4000)
-                                                multiBurstBannerText = null
+                                                delay(3500)
+                                                multiCaptureBannerText = null
                                             }
                                         },
                                         onError = {
@@ -1221,7 +632,6 @@ fun CameraScreen() {
                                 }
 
                                 else -> {
-                                    // Photo / Pro / Portrait / Night mode
                                     if (timerDurationSec > 0) {
                                         scope.launch {
                                             countdownRemaining = timerDurationSec
@@ -1230,13 +640,13 @@ fun CameraScreen() {
                                                 delay(1000)
                                                 countdownRemaining--
                                             }
-                                            performPhotoCapture(cameraManager, selectedFilter) { uri ->
+                                            performPhotoCapture(cameraManager) { uri ->
                                                 lastCapturedUri = uri
                                             }
                                         }
                                     } else {
                                         isCapturing = true
-                                        performPhotoCapture(cameraManager, selectedFilter) { uri ->
+                                        performPhotoCapture(cameraManager) { uri ->
                                             isCapturing = false
                                             lastCapturedUri = uri
                                         }
@@ -1272,14 +682,264 @@ fun CameraScreen() {
 
 private fun performPhotoCapture(
     cameraManager: NaturalCameraManager,
-    filter: ForestDslrFilter,
     onSaved: (Uri) -> Unit
 ) {
     cameraManager.takePhoto(
-        filter = filter,
         onPhotoSaved = { uri -> onSaved(uri) },
         onError = { /* error handled */ }
     )
+}
+
+/**
+ * Top Center Translucent Glassmorphic Scene Coach Pill (32.dp height)
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun SceneCoachPill(
+    suggestion: CoachSuggestion,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit,
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val icon = when (suggestion.type) {
+        SuggestionType.EXPOSURE -> "☀️"
+        SuggestionType.HORIZON_LEVEL, SuggestionType.PITCH_TILT -> "📐"
+        SuggestionType.ZOOM_FRAMING -> "🔍"
+        SuggestionType.BACKLIGHT -> "🌓"
+        SuggestionType.MOTION_STABILITY -> "🌙"
+        SuggestionType.POSE_ALIGNMENT -> "🧍"
+    }
+
+    Surface(
+        color = Color(0xCC18181A),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(0.8.dp, Color(0x33FFFFFF)),
+        modifier = modifier
+            .height(32.dp)
+            .combinedClickable(
+                onClick = onApply,
+                onLongClick = onLongPress
+            )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = icon, fontSize = 12.sp)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = suggestion.shortLabel,
+                color = White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
+
+            if (suggestion.action != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    color = AmberAccent,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "APPLY",
+                        color = Black,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss",
+                    tint = LightGray,
+                    modifier = Modifier.size(11.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Opt-In Target Pose Skeleton:
+ * Thin 1.5.dp stroke, 30% opacity, turns emerald green and displays "Good" when match score >= 0.82.
+ */
+@Composable
+fun TargetSkeletonOverlay(
+    skeleton: TargetSkeleton,
+    poseMatched: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val skeletonColor = if (poseMatched) Color(0xCC00E676) else Color(0x4DFFFFFF)
+    val strokeWidthPx = 2.0f
+
+    Box(modifier = modifier) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val kps = skeleton.targetKeypoints.associateBy { it.id }
+
+            fun pt(id: Int): Offset? {
+                val kp = kps[id] ?: return null
+                return Offset(kp.x * w, kp.y * h)
+            }
+
+            fun link(id1: Int, id2: Int) {
+                val p1 = pt(id1); val p2 = pt(id2)
+                if (p1 != null && p2 != null) {
+                    drawLine(skeletonColor, p1, p2, strokeWidth = strokeWidthPx)
+                }
+            }
+
+            // Head / Neck
+            pt(0)?.let { nose ->
+                drawCircle(skeletonColor, radius = 6.dp.toPx(), center = nose, style = Stroke(strokeWidthPx))
+            }
+            // Shoulders & Spine
+            link(5, 6)
+            // Left Arm
+            link(5, 7); link(7, 9)
+            // Right Arm
+            link(6, 8); link(8, 10)
+            // Torso
+            link(5, 11); link(6, 12); link(11, 12)
+            // Left Leg
+            link(11, 13); link(13, 15)
+            // Right Leg
+            link(12, 14); link(14, 16)
+        }
+
+        // Status alignment hint pill
+        Surface(
+            color = if (poseMatched) Color(0xEE00E676) else Color(0xCC18181A),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 220.dp)
+        ) {
+            Text(
+                text = if (poseMatched) "✓ Good (Ready to capture)" else skeleton.alignmentHint,
+                color = if (poseMatched) Black else White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Debug Telemetry Overlay (Triggered by Long-Press on Coach Pill)
+ */
+@Composable
+fun CoachDebugOverlay(
+    uiState: CoachUiState,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = Color(0xF0101012),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.7f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🛠️ Scene Coach Live Telemetry",
+                    color = AmberAccent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = White, modifier = Modifier.size(16.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Latency & FPS
+            val p50 = uiState.inferenceMs
+            val p95 = (p50 * 1.25f).roundToInt()
+            Text(
+                text = "⚡ Engine: ${String.format("%.1f", uiState.fps)} fps | Inference: ${p50}ms (p95: ${p95}ms)",
+                color = White,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Places365 Top-3 Categories
+            Text(
+                text = "📍 Places365 Classification (Smoothed EMA):",
+                color = AmberAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            uiState.topSceneLabels.forEach { labelScore ->
+                Text(
+                    text = "   • ${labelScore.label}: ${(labelScore.confidence * 100).roundToInt()}%",
+                    color = White.copy(alpha = 0.85f),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Measured Physical Metrics
+            val m = uiState.liveMeasurements
+            Text(
+                text = "📊 Live Measurements:",
+                color = AmberAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "   • Luma: ${m.avgLuma.roundToInt()} | Clip: ${(m.highlightClippedPct * 100).roundToInt()}% | Crush: ${(m.shadowCrushedPct * 100).roundToInt()}%",
+                color = White.copy(alpha = 0.85f),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "   • Roll: ${String.format("%.1f", m.horizonRollDeg)}° | Pitch: ${String.format("%.1f", m.cameraPitchDeg)}° | Shake: ${String.format("%.2f", m.angularSpeedRadS)} rad/s",
+                color = White.copy(alpha = 0.85f),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "   • Sharpness (Laplacian): ${m.laplacianVariance.roundToInt()} | Backlight Ratio: ${String.format("%.2f", m.subjectBackgroundRatio)}",
+                color = White.copy(alpha = 0.85f),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+
+            uiState.activeSuggestion?.let {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "🎯 Active Evidence: ${it.evidence}",
+                    color = Color(0xFF00E676),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+    }
 }
 
 @Composable

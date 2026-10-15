@@ -18,7 +18,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.*
 import androidx.camera.video.VideoCapture
 import androidx.camera.view.PreviewView
-import com.deekshith.naturalcam.filter.ForestDslrFilter
 import androidx.core.content.ContextCompat
 import androidx.core.util.Consumer
 import androidx.lifecycle.LifecycleOwner
@@ -108,6 +107,22 @@ class NaturalCameraManager(
                 val previewExtender = Camera2Interop.Extender(previewBuilder)
                 configureNaturalToneCapture(previewExtender, mode)
 
+                previewExtender.setSessionCaptureCallback(object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureCompleted(
+                        session: android.hardware.camera2.CameraCaptureSession,
+                        request: CaptureRequest,
+                        result: android.hardware.camera2.TotalCaptureResult
+                    ) {
+                        super.onCaptureCompleted(session, request, result)
+                        val iso = result.get(android.hardware.camera2.CaptureResult.SENSOR_SENSITIVITY) ?: 100
+                        val expTime = result.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME) ?: 10_000_000L
+                        val evComp = result.get(android.hardware.camera2.CaptureResult.CONTROL_AE_EXPOSURE_COMPENSATION) ?: 0
+                        val evVal = evComp * 0.16666f
+                        val zoom = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1.0f
+                        sceneCoachAnalyzer?.updateCameraHardwareState(evVal, zoom, iso, expTime)
+                    }
+                })
+
                 preview = previewBuilder.build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
@@ -136,15 +151,14 @@ class NaturalCameraManager(
                     .build()
                 videoCapture = VideoCapture.withOutput(recorder)
 
-                // 4. On-Device Offline AI Scene Analysis Use Case
-                // 4. On-Device Offline AI Scene Analysis Use Case
+                // 4. On-Device Offline Scene Coach Analysis Use Case
                 val analysis = ImageAnalysis.Builder()
                     .setTargetAspectRatio(targetAspectRatio)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
 
-                aiDirector?.let { director ->
-                    analysis.setAnalyzer(cameraExecutor, director)
+                sceneCoachAnalyzer?.let { coach ->
+                    analysis.setAnalyzer(cameraExecutor, coach)
                 }
                 this.imageAnalysis = analysis
 
@@ -327,96 +341,62 @@ class NaturalCameraManager(
     }
 
     fun takePhoto(
-        filter: com.deekshith.naturalcam.filter.ForestDslrFilter = com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL,
         onPhotoSaved: (Uri) -> Unit,
         onError: (Exception) -> Unit
     ) {
         val imageCapture = this.imageCapture ?: return
 
-        if (filter == com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) {
-            val name = "IMG_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
-            val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/NaturalCam")
+        val name = "IMG_" + SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/NaturalCam")
+            }
+        }
+
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(
+            context.contentResolver,
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ).build()
+
+        imageCapture.takePicture(
+            outputOptions,
+            cameraExecutor,
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val savedUri = output.savedUri ?: Uri.EMPTY
+                    Log.d(TAG, "Photo saved: $savedUri")
+                    onPhotoSaved(savedUri)
+                }
+
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                    onError(exc)
                 }
             }
-
-            val outputOptions = ImageCapture.OutputFileOptions.Builder(
-                context.contentResolver,
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues
-            ).build()
-
-            imageCapture.takePicture(
-                outputOptions,
-                cameraExecutor,
-                object : ImageCapture.OnImageSavedCallback {
-                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                        val savedUri = output.savedUri ?: Uri.EMPTY
-                        Log.d(TAG, "Photo saved: $savedUri")
-                        onPhotoSaved(savedUri)
-                    }
-
-                    override fun onError(exc: ImageCaptureException) {
-                        Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-                        onError(exc)
-                    }
-                }
-            )
-        } else {
-            // Apply DSLR Forest Filter Matrix
-            imageCapture.takePicture(
-                cameraExecutor,
-                object : ImageCapture.OnImageCapturedCallback() {
-                    override fun onCaptureSuccess(image: ImageProxy) {
-                        try {
-                            val bitmap = image.toBitmap()
-                            val filteredBitmap = filter.applyToBitmap(bitmap)
-                            val savedUri = saveBitmapToGallery(filteredBitmap)
-                            onPhotoSaved(savedUri)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error applying filter: ${e.message}", e)
-                            onError(e)
-                        } finally {
-                            image.close()
-                        }
-                    }
-
-                    override fun onError(exc: ImageCaptureException) {
-                        Log.e(TAG, "Capture failed: ${exc.message}", exc)
-                        onError(exc)
-                    }
-                }
-            )
-        }
+        )
     }
 
-    var aiDirector: ImageAnalysis.Analyzer? = null
+    var sceneCoachAnalyzer: com.deekshith.naturalcam.coach.SceneCoachAnalyzer? = null
     private var imageAnalysis: ImageAnalysis? = null
 
-    fun registerAiDirector(director: ImageAnalysis.Analyzer) {
-        aiDirector = director
-        imageAnalysis?.setAnalyzer(cameraExecutor, director)
+    fun registerSceneCoach(coach: com.deekshith.naturalcam.coach.SceneCoachAnalyzer) {
+        sceneCoachAnalyzer = coach
+        imageAnalysis?.setAnalyzer(cameraExecutor, coach)
     }
 
-    fun unregisterAiDirector() {
-        aiDirector = null
+    fun unregisterSceneCoach() {
+        sceneCoachAnalyzer = null
         imageAnalysis?.clearAnalyzer()
     }
 
     /**
-     * Huawei XMAGE / Master All-In-One Multi-Capture:
-     * One single shutter press outputs 8 distinct master shots simultaneously:
-     * 1) Authentic Natural (Sony IMX890, zero bleach)
-     * 2) High-Resolution Full-Fidelity 50MP Ultra-Detail
-     * 3) Optical Portrait Bokeh (f/1.4 background depth-of-field)
-     * 4) Black Pro-Mist 1/4 (Optical highlight bloom with ZERO color shift)
-     * 5) CPL Polarizer (Glare reduction & foliage contrast with 100% natural sensor colors)
-     * 6) Emerald Pine Forest DSLR Grade
-     * 7) Golden Canopy Autumn Sunbeam Grade
-     * 8) Leica Noir Deep Monochrome Grade
+     * Authentic Multi-Capture:
+     * Outputs 2 distinct authentic master shots simultaneously with ZERO artificial color shifts:
+     * 1) Authentic Natural Sony IMX890 direct sensor capture
+     * 2) Optical Portrait Bokeh (f/1.4 background depth-of-field)
      */
     fun takeMultiAllInOne(
         onResultsSaved: (count: Int, firstUri: Uri) -> Unit,
@@ -432,50 +412,20 @@ class NaturalCameraManager(
                         val baseBitmap = image.toBitmap()
                         var firstUri: Uri? = null
 
-                        // 1. Normal Natural Shot (Pure Sony IMX890 sensor)
+                        // 1. Authentic Natural Shot (Pure Sony IMX890 sensor)
                         val normalUri = saveBitmapToGallery(baseBitmap, prefix = "1_NATURAL")
                         firstUri = normalUri
 
-                        // 2. High-Resolution Full-Fidelity 50MP Shot
-                        val highResBmp = com.deekshith.naturalcam.filter.ForestDslrFilter.createHighResDetailMaster(baseBitmap)
-                        saveBitmapToGallery(highResBmp, prefix = "2_HIGH_RES")
-                        if (highResBmp != baseBitmap) highResBmp.recycle()
-
-                        // 3. Optical Portrait Bokeh (Creamy f/1.4 Depth of Field)
+                        // 2. Optical Portrait Bokeh (f/1.4 Depth of Field, 100% natural color)
                         val portraitBmp = com.deekshith.naturalcam.effect.PortraitBokehProcessor.createPortraitBokeh(baseBitmap)
-                        saveBitmapToGallery(portraitBmp, prefix = "3_PORTRAIT_BOKEH")
+                        saveBitmapToGallery(portraitBmp, prefix = "2_PORTRAIT_BOKEH")
                         portraitBmp.recycle()
 
-                        // 4. Black Pro-Mist 1/4 (Optical bloom, zero color shift)
-                        val proMistBmp = ForestDslrFilter.BLACK_PRO_MIST.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(proMistBmp, prefix = "4_PRO_MIST_BLOOM")
-                        if (proMistBmp != baseBitmap) proMistBmp.recycle()
-
-                        // 5. CPL Polarizer (Anti-glare, untouched sensor color)
-                        val cplBmp = ForestDslrFilter.CPL_POLARIZER.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(cplBmp, prefix = "5_CPL_POLARIZER")
-                        if (cplBmp != baseBitmap) cplBmp.recycle()
-
-                        // 6. Emerald Pine Forest DSLR Edit
-                        val emeraldBmp = ForestDslrFilter.EMERALD_FOREST.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(emeraldBmp, prefix = "6_EMERALD_FOREST")
-                        if (emeraldBmp != baseBitmap) emeraldBmp.recycle()
-
-                        // 7. Golden Canopy Autumn Sunbeam Edit
-                        val goldenBmp = ForestDslrFilter.GOLDEN_CANOPY.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(goldenBmp, prefix = "7_GOLDEN_CANOPY")
-                        if (goldenBmp != baseBitmap) goldenBmp.recycle()
-
-                        // 8. Leica Noir Monochrome Edit
-                        val leicaBmp = ForestDslrFilter.LEICA_NOIR.applyToBitmap(baseBitmap)
-                        saveBitmapToGallery(leicaBmp, prefix = "8_LEICA_NOIR")
-                        if (leicaBmp != baseBitmap) leicaBmp.recycle()
-
                         ContextCompat.getMainExecutor(context).execute {
-                            onResultsSaved(8, firstUri ?: normalUri)
+                            onResultsSaved(2, firstUri ?: normalUri)
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "Multi all-in-one capture failed: ${e.message}", e)
+                        Log.e(TAG, "Multi capture failed: ${e.message}", e)
                         ContextCompat.getMainExecutor(context).execute { onError(e) }
                     } finally {
                         image.close()
