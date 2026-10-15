@@ -282,16 +282,14 @@ class RuleEngine(private val closedLoopTracker: ClosedLoopTracker) {
         }
 
         val avgDist = if (countedKps > 0) kotlin.math.sqrt((totalDist / countedKps).toDouble()).toFloat() else 0.5f
-        val matchScore = (1.0f - (avgDist / 0.35f)).coerceIn(0.0f, 1.0f)
+        val anglePenalty = (abs(pose.torsoLeanAngleDeg) / 45.0f).coerceIn(0f, 0.5f) + (abs(pose.headTiltAngleDeg) / 45.0f).coerceIn(0f, 0.3f)
+        val matchScore = ((1.0f - (avgDist / 0.35f)) * (1.0f - anglePenalty)).coerceIn(0.0f, 1.0f)
 
         // Generate kinematic relative instructions
         var hint = "Pose matched"
         var coachSuggestion: CoachSuggestion? = null
 
         when {
-            matchScore >= CoachThresholds.POSE_MATCH_SCORE_SUCCESS -> {
-                hint = "Pose Matched (Good)"
-            }
             abs(pose.torsoLeanAngleDeg) > 14.0f -> {
                 val leanDir = if (pose.torsoLeanAngleDeg > 0) "right" else "left"
                 val leanInt = abs(pose.torsoLeanAngleDeg).roundToInt()
@@ -322,6 +320,9 @@ class RuleEngine(private val closedLoopTracker: ClosedLoopTracker) {
                     baselineValue = matchScore,
                     expectedTarget = 0.85f
                 )
+            }
+            matchScore >= CoachThresholds.POSE_MATCH_SCORE_SUCCESS -> {
+                hint = "Pose Matched (Good)"
             }
             pose.gridPosition == GridThirdsRegion.CENTER_THIRD &&
                 (frameState.activePlaceCategory == PlaceCategory.HISTORIC_ARCHITECTURE ||

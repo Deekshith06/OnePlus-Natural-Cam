@@ -22,6 +22,7 @@ The unit test suite covers all core mathematical calculations, deterministic rul
 | `RuleEngineTest` | `testPortraitFraming_stepBackWhenSubjectTooClose` | Subject height > 85% -> Step back 1m | **PASS** |
 | `RuleEngineTest` | `testPortraitFraming_zoomInWhenSubjectTooFar` | Subject height < 45% -> Zoom 2x | **PASS** |
 | `RuleEngineTest` | `testPoseCoaching_detectsTorsoLeanAndGeneratesRelativeInstructions` | Kinematic relative tilt guidance | **PASS** |
+| `RuleEngineTest` | `testPoseCoaching_detectsAlignedPoseAndMarksGood` | Target alignment match score $\ge$ 0.82 | **PASS** |
 | `ClosedLoopTrackerTest` | `testAppliedSuggestion_whenMetricImproves_succeedsAndIsNotSuppressed` | Improvement $\ge$ 40% succeeds | **PASS** |
 | `ClosedLoopTrackerTest` | `testAppliedSuggestion_whenMetricDoesNotImprove_marksIneffectiveAndSuppresses30s` | Improvement < 40% suppresses 30s | **PASS** |
 | `ClosedLoopTrackerTest` | `testManualDismiss_immediatelySuppressesSuggestion` | User dismiss suppresses 30s | **PASS** |

@@ -192,4 +192,33 @@ class RuleEngineTest {
         assertTrue(skeleton!!.alignmentHint.contains("Straighten torso"))
         assertTrue(skeleton.alignmentHint.contains("18°"))
     }
+
+    @Test
+    fun testPoseCoaching_detectsAlignedPoseAndMarksGood() {
+        val box = CoachRectF(0.3f, 0.15f, 0.7f, 0.85f)
+        val cx = box.centerX(); val top = box.top; val h = box.height(); val w = box.width()
+        val alignedKps = listOf(
+            PoseKeypoint(0, cx, top + h * 0.08f, 0.95f),
+            PoseKeypoint(5, cx - w * 0.32f, top + h * 0.20f, 0.95f),
+            PoseKeypoint(6, cx + w * 0.32f, top + h * 0.20f, 0.95f),
+            PoseKeypoint(11, cx - w * 0.20f, top + h * 0.52f, 0.95f),
+            PoseKeypoint(12, cx + w * 0.20f, top + h * 0.52f, 0.95f)
+        )
+        val alignedPose = HumanPoseState(
+            boundingBox = box,
+            keypoints = alignedKps,
+            isStanding = true,
+            isSitting = false,
+            torsoLeanAngleDeg = 0.0f,
+            headTiltAngleDeg = 0.0f,
+            handsVisible = true,
+            gridPosition = GridThirdsRegion.CENTER_THIRD
+        )
+
+        val state = MeasuredFrameState(poseState = alignedPose)
+        val (_, skeleton) = ruleEngine.evaluate(state)
+        assertNotNull(skeleton)
+        assertEquals("Pose Matched (Good)", skeleton!!.alignmentHint)
+        assertTrue("Match score must be >= 0.82", skeleton.matchScore >= 0.82f)
+    }
 }
