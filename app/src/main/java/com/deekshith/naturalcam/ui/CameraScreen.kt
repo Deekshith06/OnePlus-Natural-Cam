@@ -40,6 +40,7 @@ import coil.compose.AsyncImage
 import com.deekshith.naturalcam.camera.AspectRatioMode
 import com.deekshith.naturalcam.camera.CameraMode
 import com.deekshith.naturalcam.camera.NaturalCameraManager
+import com.deekshith.naturalcam.filter.ForestDslrFilter
 import com.deekshith.naturalcam.sensor.rememberOrientationSensor
 import com.deekshith.naturalcam.ui.theme.*
 import kotlinx.coroutines.delay
@@ -81,7 +82,7 @@ fun CameraScreen() {
     var recordingDurationSec by remember { mutableIntStateOf(0) }
 
     // Capture & Gallery
-    var selectedFilter by remember { mutableStateOf(com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) }
+    var selectedFilter by remember { mutableStateOf(ForestDslrFilter.NATURAL) }
     var showFilterSelector by remember { mutableStateOf(false) }
     var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
@@ -264,11 +265,11 @@ fun CameraScreen() {
                     Box(
                         modifier = Modifier
                             .size(7.dp)
-                            .background(if (selectedFilter != com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) AmberAccent else OnePlusRed, CircleShape)
+                            .background(if (selectedFilter != ForestDslrFilter.NATURAL) AmberAccent else OnePlusRed, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = if (selectedFilter != com.deekshith.naturalcam.filter.ForestDslrFilter.NATURAL) {
+                        text = if (selectedFilter != ForestDslrFilter.NATURAL) {
                             selectedFilter.displayName.uppercase()
                         } else {
                             when (currentMode) {
@@ -345,7 +346,7 @@ fun CameraScreen() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(com.deekshith.naturalcam.filter.ForestDslrFilter.values()) { filter ->
+                    items(ForestDslrFilter.values()) { filter ->
                         val isSelected = selectedFilter == filter
                         Surface(
                             color = if (isSelected) AmberAccent else Color.Transparent,
@@ -680,7 +681,7 @@ fun CameraScreen() {
 
 private fun performPhotoCapture(
     cameraManager: NaturalCameraManager,
-    filter: com.deekshith.naturalcam.filter.ForestDslrFilter,
+    filter: ForestDslrFilter,
     onSaved: (Uri) -> Unit
 ) {
     cameraManager.takePhoto(
