@@ -5,7 +5,31 @@
 [![Privacy](https://img.shields.io/badge/Privacy-0%20Internet%20Permissions-brightgreen.svg)](#privacy--bloat-free)
 [![Device](https://img.shields.io/badge/Optimized%20for-OnePlus%2011%20%2F%20OxygenOS-red.svg)](#the-problem)
 
+**Author:** Seelaboyina Deekshith ([@Deekshith06](https://github.com/Deekshith06))
+
 A lightweight, **100% Free & Open-Source (FOSS)** camera app built for OnePlus devices running OxygenOS / ColorOS. Specifically engineered to **eliminate aggressive AI skin-whitening and highlight blowout**, while delivering an intelligent, **100% offline Scene Coach** inspired by Huawei Master AI and professional cinematography direction.
+
+---
+
+## 📌 Architecture & Real-Time Intelligence Pipeline
+
+```mermaid
+flowchart TD
+    Sensor[Camera2 API / Sony IMX890 Viewfinder Stream] --> FrameDispatcher[Decoupled Background Analyzer: ~4 FPS]
+
+    subgraph OnDeviceInference [100% Offline Edge Vision Engines]
+        FrameDispatcher --> MoveNet[MoveNet 17-Keypoint Pose & Kinematics]
+        FrameDispatcher --> Places[Places365 ResNet18 Scene Classifier]
+        FrameDispatcher --> Photometry[Luma Histogram & Highlight Clipping Engine]
+        FrameDispatcher --> GyroSensor[Hardware Gyroscope & Accelerometer Roll/Pitch]
+    end
+
+    OnDeviceInference --> CoachRuleEngine[Rule Engine & Closed-Loop Verifier]
+    CoachRuleEngine --> UIOverlay[Translucent Suggestion Pill & Opt-In Wireframe Skeleton]
+    UIOverlay --> ActionApply[Single-Tap Apply: Camera2 EV / ISO / Lens Adjustment]
+    ActionApply --> VerificationLoop[Verify Metric Improvement: >= 40% Delta Threshold]
+    VerificationLoop -.-> CoachRuleEngine
+```
 
 ---
 
@@ -55,3 +79,12 @@ All artificial color-shade matrices, color filters, and RenderEffects have been 
 ## 📄 License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+---
+
+## 👤 Author
+
+**Seelaboyina Deekshith**
+- GitHub: [@Deekshith06](https://github.com/Deekshith06)
+- Repository: [OnePlus-Natural-Cam](https://github.com/Deekshith06/OnePlus-Natural-Cam)
+
